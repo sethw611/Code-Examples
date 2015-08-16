@@ -1,0 +1,205 @@
+## Gaussian PDF ##
+
+pdf("filepathname.../NormalPDF.pdf")
+
+x.norm <- NA
+by = c(3,5,7,10,12)
+pch.norm <- c(21,22,23,24,25)
+mu <- c(-60,-20,10,50,90)
+sigma <- c(16,20,30,42,60)
+xl.nrm <- c(-110,230) 
+yl.nrm <- c(0,.025)
+col.norm <- c("blue","red","darkgreen","purple","goldenrod3")
+leg.norm <- c(expression(paste(mu, "=-60, ", sigma^2, "=16")),
+			expression(paste(mu, "=-20, ", sigma^2, "=20")),
+			expression(paste(mu, "=10, ", sigma^2, "=30")),
+			expression(paste(mu, "=50, ", sigma^2, "=42")),
+			expression(paste(mu, "=90, ", sigma^2, "=60")))
+
+for(i in 1:5) {
+	if(i==1) {
+		x.norm <- seq(-110,230, by=by[i])
+		curve(dnorm(x,mu[i],sigma[i]), xlim=xl.nrm, ylim=yl.nrm, col=col.norm[i], xlab="x", ylab="Pr(X=x)", main="Probability Density Function - Gaussian"), points(x.norm, dnorm(x.norm,mu[i],sigma[i]), pch=pch.norm[i], col=col.norm[i], bg=col.norm[i])
+	} else {
+		par(new=TRUE)
+		x.norm <- seq(-110,230, by=by[i])
+		curve(dnorm(x,mu[i],sigma[i]), xlim=xl.nrm, ylim=yl.nrm, col=col.norm[i], xlab="", ylab="", main="", xaxt="n", yaxt="n")
+		points(x.norm, dnorm(x.norm,mu[i],sigma[i]), pch=pch.norm[i], col=col.norm[i], bg=col.norm[i])
+	}
+}
+
+legend("topright", legend=leg.norm, pch=pch.norm, col=col.norm, pt.bg=col.norm, inset=c(.15,.15))
+
+dev.off()
+
+
+
+## Normal CDF ##
+
+pdf("filepathname.../NormalCDF.pdf")
+
+yl.cnrm <- c(0,1) 
+
+for(i in 1:5) {
+	if(i==1) {	
+		x.norm <- seq(-110,230, by=by[i])
+		curve(pnorm(x,mu[i],sigma[i]), xlim=xl.nrm, ylim=yl.cnrm, col=col.norm[i], xlab="x", ylab=expression(paste("Pr(",X<=x,")")), main="Cumulative Distribution Function - Gaussian")	
+		points(x.norm, pnorm(x.norm,mu[i],sigma[i]), pch=pch.norm[i], col=col.norm[i], bg=col.norm[i])
+	} else {
+		x.norm <- seq(-110,230, by=by[i])
+		par(new=TRUE)
+		curve(pnorm(x,mu[i],sigma[i]), xlim=xl.nrm, ylim=yl.cnrm, col=col.norm[i], xlab="", ylab="", main="", xaxt="n", yaxt="n")	
+		points(x.norm, pnorm(x.norm,mu[i],sigma[i]), pch=pch.norm[i], col=col.norm[i], bg=col.norm[i])
+	}
+}
+
+legend("bottomright", legend=leg.norm, pch=pch.norm, col=col.norm, pt.bg=col.norm, inset=c(.10,.15))
+
+dev.off()
+
+
+
+## Binomial PMF ##
+
+pdf("filepathname.../BinomialPMF.pdf")
+
+pch.bin <- c(15,16,17,18)
+n <- c(50,100,150,50)
+col.cbin <- c("blue","red","purple","goldenrod")
+p.bin <- c(.2,.2,.2,.8)
+leg.binom <- c("n=50, p=0.2","n=100, p=0.2","n=150, p=0.2","n=50, p=0.8")
+
+for(i in 1:4) {
+	x <- seq(0,n[i],1)
+	if(i==1) {
+		plot(x, dbinom(x,n[i],p.bin[i]), xlim=c(0,50), col=col.cbin[i], ylim=c(0,.2),xlab="x", ylab="Pr(X=x)", type="p",main="Probability Mass Function - Binomial", pch=pch.bin[i])
+	} else {
+		par(new=TRUE)
+		plot(x, dbinom(x,n[i],p.bin[i]), xlim=c(0,50), col=col.cbin[i],ylim=c(0,.2), main="", xlab="", ylab="", type="p", pch=pch.bin[i], xaxt="n", yaxt="n")
+	}
+}
+
+legend("top", legend=leg.binom, pch=pch.bin, col=col.cbin, inset=c(0,.15))
+
+dev.off()
+
+
+
+## Binomial CDF ##
+
+pdf("filepathname.../BinomialCDF.pdf")
+
+for(i in 1:4) {
+	x <- seq(0,n[i],1)
+	if(i==1) {
+		plot(x, pbinom(x,n[i],p.bin[i]), xlim=c(0,50), col=col.cbin[i], ylim=c(0,1), type="s", main="Cumulative Distribution Function - Binomial", xlab="x", ylab=expression(paste("Pr(",X<=x,")")))
+		points(x, pbinom(x,n[i],p.bin[i]), pch=pch.bin[i], col=col.cbin[i])
+	} else {
+		par(new=TRUE)
+		plot(x, pbinom(x,n[i],p.bin[i]), xlim=c(0,50), col=col.cbin[i],ylim=c(0,1), main="", xlab="", ylab="", type="s", xaxt="n", yaxt="n")
+		points(x, pbinom(x,n[i],p.bin[i]), pch=pch.bin[i], col=col.cbin[i])
+	}
+}
+
+legend("bottomright", legend=leg.binom, pch=pch.bin, col=col.cbin)
+
+dev.off()
+
+
+
+## Poisson PMF ##
+
+k <- seq(0,60,1)
+lam <- rep(0,4)
+base <- seq(0,15,5)
+col.pois <- c("blue","red","purple","darkgreen")
+pch.pois <- c(15,16,17,18)
+
+pdf("filepathname.../PoissonPMF.pdf")
+
+for(i in 1:4) {
+	lam[i] <- base[i]+5*(1+i)
+	if(i==1) {
+		plot(k, dpois(k,lam[i]), col=col.pois[i], xlim=c(0,60), ylim = c(0,.15), main="Probability Mass Function - Poisson", xlab="k", ylab="Pr(K=k)", type="p", pch=pch.pois[i])
+	} else {
+		par(new=TRUE)
+		plot(k, dpois(k,lam[i]), col=col.pois[i], xlim=c(0,60), ylim = 	c(0,.15), main="", xlab="", ylab="", xaxt="n", yaxt="n", type="p", pch=pch.pois[i])
+	}
+}
+	
+leg.pois <- c(expression(paste(lambda, "=10")), expression(paste(lambda, "=20")), expression(paste(lambda, "=30")), expression(paste(lambda, "=40")))
+
+legend("topright", legend=leg.pois, pch=pch.pois, col=col.pois, inset=c(.2,.15))
+
+dev.off()
+	
+
+
+## Poisson CDF ##
+
+pdf("filepathname.../PoissonCDF.pdf")
+
+for(i in 1:4) {
+	lam[i] <- base[i]+5*(1+i)
+	if(i==1) {
+		plot(k, ppois(k,lam[i]), col=col.pois[i], xlim=c(0,60), ylim = c(0,1), 	xlab="k", ylab=expression(paste("Pr(",K<=k,")")), main="Cumulative Distribution Function - Poisson", type="s")
+		points(k, ppois(k,lam[i]), pch=pch.pois[i], col=col.cbin[i])
+	} else {
+		par(new=TRUE)
+		plot(k, ppois(k,lam[i]), col=col.pois[i], xlim=c(0,60), ylim = c(0,1), main="", xlab="", ylab="", xaxt="n", yaxt="n", type="s")
+		points(k, ppois(k,lam[i]), pch=pch.pois[i], col=col.pois[i])
+	}
+}
+	
+leg.pois <- c(expression(paste(lambda, "=10")), expression(paste(lambda, "=20")), expression(paste(lambda, "=30")), expression(paste(lambda, "=40")))
+
+legend("bottomright", legend=leg.pois, pch=pch.pois, col=col.pois, inset=c(.1,.2))
+
+dev.off()
+
+
+
+## Exponential PDF ##
+
+pdf("filepathname.../ExponentialPDF.pdf")
+
+pch.exp <- c(15,16,17,18)
+x.exp <- seq(0,20,by=.5)
+lam.exp <- c(.2,.5,.8, 1.5)
+col.exp <- col.pois
+leg.exp <- c(expression(paste(lambda, "=0.2")), expression(paste(lambda, "=0.5")), expression(paste(lambda, "=0.8")), expression(paste(lambda, "=1.5")))
+
+for(i in 1:4) { 
+	if(i==1) {
+		curve(dexp(x, lam.exp[i]), xlim=c(0,20), ylim=c(0,1), xlab="x", ylab="Pr(X=x)", col=col.exp[i], main="Probability Density Function - Exponential")
+		points(x.exp, dexp(x.exp,lam.exp[i]), pch=pch.exp[i], col=col.exp[i])
+	} else {
+		par(new=TRUE)
+		curve(dexp(x,lam.exp[i]), xlim=c(0,20), ylim=c(0,1), main="", xlab="", ylab="Pr(X=x)", xaxt="n", yaxt="n", col=col.exp[i])
+		points(x.exp, dexp(x.exp,lam.exp[i]), pch=pch.exp[i], col=col.exp[i])
+	} 
+}
+
+legend("topright", legend=leg.exp, pch=pch.exp, col=col.exp, inset=c(.2,.2))
+
+dev.off()
+
+
+## Exponential CDF ##
+
+pdf("filepathname.../ExponentialCDF.pdf")
+
+for(i in 1:4) {
+	if(i==1) {
+		curve(pexp(x,lam.exp[i]), xlim=c(0,20), ylim=c(0,1),xlab="x",ylab=expression(paste("Pr(",X<=x,")")), main="Cumulative Distribution Function - Exponential", col=col.exp[i])
+		points(x.exp, pexp(x.exp,lam.exp[i]), pch=pch.exp[i], col=col.exp[i])
+	} else {
+		par(new=TRUE)
+		curve(pexp(x,lam.exp[i]), xlim=c(0,20), ylim=c(0,1), main="", xlab="", ylab="", xaxt="n", yaxt="n", col=col.exp[i])
+		points(x.exp, pexp(x.exp,lam.exp[i]), pch=pch.exp[i], col=col.exp[i])
+	}
+}
+
+legend("bottomright", inset=c(.2,.2),legend=rev(leg.exp), col=rev(col.exp), pch=rev(pch.exp))
+
+dev.off()
