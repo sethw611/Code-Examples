@@ -4,8 +4,6 @@ library(stargazer)
 
 ## Read in data ##
 
-dwaldo <- read.dta("filepathname.../dropwaldo.dta")
-
 waldo <- read.dta("filepathname.../waldo.dta")
 
 ## Look at year frequencis and then select a year for use in the model ##
