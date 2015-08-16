@@ -1,0 +1,129 @@
+library(foreign)
+library(gplots)
+library(stargazer)
+
+## Read in data ##
+
+dwaldo <- read.dta("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/dropwaldo.dta")
+
+waldo <- read.dta("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/waldo.dta")
+
+## Look at year frequencis and then select a year for use in the model ##
+
+table(waldo$year)
+
+## Create a subset of the data consisting of only those observations from the year 1982 ##
+
+waldo.82 <- waldo[which(waldo$year==1982),]
+
+## Run the linear model ##
+
+ols.1 <- lm(waldo.82$ninits ~ waldo.82$pctpopgrowth2 + waldo.82$demd + waldo.82$major + waldo.82$demminorpop2 + waldo.82$nodemmajorpop2 + waldo.82$nodemminorpop2)
+
+## Run summary of results ##
+
+summary(ols.1)
+
+## Output LateX code for results ##
+
+stargazer(ols.1)
+
+
+
+
+## Check for NA observations ##
+
+summary(waldo.82$pctpopgrowth2)
+
+## drop NA observations, otherwise matrices won't compute ##
+
+waldo.82 <- waldo.82[which(!is.na(waldo.82$pctpopgrowth2)),]
+
+## Check for more NA observations ##
+
+is.na(waldo.82$pctpopgrowth2)
+is.na(waldo.82$ninits)
+is.na(waldo.82$demd)
+is.na(waldo.82$major)
+is.na(waldo.82$demminorpop2)
+is.na(waldo.82$nodemmajorpop2)
+is.na(waldo.82$nodemminorpop2)
+
+## Create a vector of 1s for each observation for purposes of calculating intercept term ##
+
+waldo.int <- rep(1, length(waldo.82$ninits))
+
+## Bind the vectors of independent variables and the intercept vector across columns ##
+
+waldo.inds <- cbind(waldo.int,waldo.82$pctpopgrowth2,waldo.82$demd,waldo.82$major,waldo.82$demminorpop2,waldo.82$nodemmajorpop2,waldo.82$nodemminorpop2)
+
+## Coerce into matrix form, summarize to check results ##
+
+as.matrix(waldo.inds)
+summary(waldo.inds)
+
+## Create a vector of observations on the dependent variable ##
+
+waldo.dep <- waldo.82$ninits
+
+#### Follow the formula ####
+
+## Take the crossproduct of the independent variable matrix against itself (i.e. the dot product of the matrix against its transpose). Is solving for X'X in equation. ##
+
+xpx <- crossprod(waldo.inds)
+
+## Take the inverse of the crossproduct (X'X)^-1 ##
+
+xpx.inv <- solve(xpx)
+
+## Take the dot product of the transpose of the independent variable matrix against the dependent variable matrix. Is solving for X'Y in equation ##
+
+xpy <- crossprod(waldo.inds,waldo.dep)
+
+## Solve for beta-hat coefficient estimates and input into a vector. Solves for (X'X)^-1X'Y ##
+
+betas <- xpx.inv%*%xpy
+
+## Check to see if they match with the linear model run in problem 1 (They do) ##
+
+betas
+
+#### Calculating s^2, the standard error of the regression ####
+
+## Predict values of y by taking the dot product of the matrix of coefficient estimates against the matrix of independent variables and the intercept ##
+
+y.hat <- waldo.inds%*%betas
+
+## Check the dimensions to ensure proper length ##
+
+dim(y.hat)
+
+## Calculate a vector of residuals from the regression by subtracting the predicted values of the dependent variable (y-hat) from the actual observed values on the dependent variable ##
+
+e.hat <- waldo.dep-y.hat
+
+## Take the cross product of the residual vectors (or the dot product of the transpose of the vector of residuals against the non-transposed vector of residuals). Solves for the e-hat'e-hat portion of the equation for s^2 ##
+
+epe <- crossprod(e.hat)
+
+## Divide the crossproduct of the residual vectors by the degrees of freedom, n-p. This is the number of observations minus the number of parameters being estimated. The number of observations can be found by looking at the length of any of the dependent variable vectors. The number of parameters can be found by looking at the length of the beta coefficient vector ##
+
+s.sq <- epe/(length(y.hat)-length(betas))
+
+## Report the value of s_hat^2 ##
+
+s.sq
+
+## Take the square root of s_hat^2 and compare it against the output for the residual standed error from the linear model above to check if answer is the same (It is) ##
+
+sqrt(s.sq)
+
+## These can be combined into two whole equations ##
+
+betas.n <- solve(crossprod(waldo.inds))%*%crossprod(waldo.inds,waldo.dep)
+
+betas.n
+
+s.sq.n <- sqrt((crossprod(waldo.dep-(waldo.inds%*%betas.n)))/(length(waldo.dep)-length(betas.n)))
+
+s.sq.n
