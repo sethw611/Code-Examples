@@ -4,9 +4,9 @@ library(stargazer)
 
 ## Read in data ##
 
-dwaldo <- read.dta("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/dropwaldo.dta")
+dwaldo <- read.dta("filepathname.../dropwaldo.dta")
 
-waldo <- read.dta("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/waldo.dta")
+waldo <- read.dta("filepathname.../waldo.dta")
 
 ## Look at year frequencis and then select a year for use in the model ##
 
@@ -18,7 +18,7 @@ waldo.82 <- waldo[which(waldo$year==1982),]
 
 ## Run the linear model ##
 
-ols.1 <- lm(waldo.82$ninits ~ waldo.82$pctpopgrowth2 + waldo.82$demd + waldo.82$major + waldo.82$demminorpop2 + waldo.82$nodemmajorpop2 + waldo.82$nodemminorpop2)
+ols.1 <- lm(ninits ~ pctpopgrowth2 + demd + major + demminorpop2 + nodemmajorpop2 + nodemminorpop2, data = waldo.82)
 
 ## Run summary of results ##
 
