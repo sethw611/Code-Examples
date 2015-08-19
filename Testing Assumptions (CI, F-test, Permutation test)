@@ -1,0 +1,74 @@
+library(faraway)
+
+summary(teengamb)
+
+gamb <- lm(teengamb$gamble ~ teengamb$sex + teengamb$status + teengamb$income + teengamb$verbal)
+
+stargazer(gamb)
+
+summary(gamb)
+
+residuals(gamb)
+max(residuals(gamb))  ##24##
+
+mean(residuals(gamb))
+median(residuals(gamb))
+
+fitted(gamb)
+
+cor(residuals(gamb), fitted(gamb))
+
+cor(residuals(gamb), teengamb$income)
+
+summary(teengamb$sex) ##0=male, 1=female##
+
+summary(prostate)
+
+pros <- lm(lpsa ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = prostate)
+
+sumpros <- summary(pros)
+sumpros$fstat
+
+
+
+## Confidence Intervals ##
+
+confint(pros, parm = "age", level = 0.90)
+confint(pros, parm = "age", level = 0.95)
+
+## F-Test ##
+
+nullpros <- lm(lpsa ~ 1, data=prostate)
+
+anova(nullpros, pros)
+
+## Permutation Test ##
+
+nreps <- 5000
+set.seed(123)
+fstats <- numeric(nreps)
+
+for(i in 1:nreps){
+	permpros <- lm(sample(lpsa) ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = prostate)
+	fstats[i] <- summary(permpros)$fstat[1]
+}
+mean(fstats > sumpros$fstat[1])
+
+
+restpros <- lm(lpsa ~ lcavol + lweight + svi, data = prostate)
+
+sumrestpros <- summary(restpros)
+
+
+
+anova(restpros, pros)
+
+nreps1 <- 5000
+set.seed(123)
+fstats1 <- numeric(nreps1)
+
+for(i in 1:nreps1){
+	permpros1 <- lm(sample(lpsa) ~ lcavol + lweight + svi, data = prostate)
+	fstats1[i] <- summary(permpros1)$fstat[1]
+}
+mean(fstats1 > sumrestpros$fstat[1])
