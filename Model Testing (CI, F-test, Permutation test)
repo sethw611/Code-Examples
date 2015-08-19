@@ -72,3 +72,7 @@ for(i in 1:nreps1){
 	fstats1[i] <- summary(permpros1)$fstat[1]
 }
 mean(fstats1 > sumrestpros$fstat[1])
+
+
+
+
