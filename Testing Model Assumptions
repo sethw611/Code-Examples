@@ -84,3 +84,128 @@ vif(sat.x)
 
 sqrt(vif(sat.x))
 
+## Constant Variance ##
+
+# check for homoskedasticity in the residuals
+
+pdf("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 5/resplot.pdf")
+
+par(mfrow=c(1,1))
+plot(fitted(sat.1), residuals(sat.1), xlab = "Fitted", ylab = "Residuals")
+abline(h=0, col="red")
+
+dev.off()
+
+# better visualization by looking at sqrt(abs(resid))
+
+plot(fitted(sat.1), sqrt(abs(residuals(sat.1))))
+
+# can double check variance assumption against each predictor variable to determine if transformations of predictors are needed
+
+par(mfrow=c(2,2))
+
+plot(sat$expend, residuals(sat.1))
+abline(h=0, col="red")
+
+plot(sat$salary, residuals(sat.1))
+abline(h=0, col="red")
+
+plot(sat$ratio, residuals(sat.1))
+abline(h=0, col="red")
+
+plot(sat$takers, residuals(sat.1))
+abline(h=0, col="red")
+
+
+## Check assumption E(e)=0 ##
+
+mean(residuals(sat.1))
+
+
+## Check assumption: e ~ Normally
+
+# can look at histograms first, but should not overly rely on results
+
+par(mfrow=c(1,1))
+hist(residuals(sat.1), main="Original Model", xlab="Residuals")
+
+
+# check qq plot to compare residuals to 'ideal' normal observations
+
+qqnorm(residuals(sat.1), main="Original Model", xlab="Residuals")
+qqline(residuals(sat.1), col="red")
+
+# test formally with Shapiro test, null = errors are normal. Can reveal if something is wrong, but not what.
+
+shapiro.test(residuals(sat.1))
+
+
+## Test for influential observations ##
+
+# detecting leverage points
+# first calculate hat values
+
+hatv <- hatvalues(sat.1)
+head(hatv)
+sum(hatv)
+
+# generate half-normal plot
+
+pdf("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 5/half1.pdf")
+
+par(mfrow=c(1,1))
+halfnorm(hatv, ylab="Leverages", labs= row.names(sat))
+
+dev.off()
+
+# can also generate qq plot for standardized resids
+
+qqnorm(rstandard(sat.1))
+abline(0,1)
+
+
+# detecting outliers
+# get studentized resids
+
+stud.1 <- rstudent(sat.1)
+
+# can do quick check for the largest outlier
+
+stud.1[which.max(abs(stud.1))]
+
+# look at values of all outliers in order
+
+sort(stud.1)
+
+# look at histogram 
+
+hist(stud.1)
+
+
+# cook's d to check for overall influence. sort to identify largest values.
+
+cook.1 <- cooks.distance(sat.1)
+sort(cook.1)
+
+# generate half-normal plot to visualize
+
+halfnorm(cook.1, 1, labs=row.names(sat), ylab = "Cook's Distance")
+
+
+# can try dropping influential observations if theoretically or empiricaly justified. Here I drop only the most influential observation. 
+
+sat.d.1 <- lm(sat$total ~ sat$expend + sat$ratio + sat$salary + sat$takers, subset=(cook.1 < max(cook.1)))
+summary(sat.d.1)
+
+# can also specify a threshold for the cooks d value. Here I drop any observations with a cooks d greater than 0.1. Note that this is not really justified in this case and the threshold will vary by problem
+
+
+sat.d.1.1 <- lm(sat$total ~ sat$expend + sat$ratio + sat$salary + sat$takers, subset=(cook.1 < 0.1))
+summary(sat.d.1.1)
+
+
+# rather than removing observations one by one or haphazardly, can look at leave-one-out differences in coefficients and use this to identify those observations that exert high influence even after other observations are dropped
+
+plot(dfbeta(sat.1)[,2], ylab="Average SAT Score") 
+abline(h=0, col="red")
+identify(dfbeta(sat.1)[,2], labels=rows.names(sat))
