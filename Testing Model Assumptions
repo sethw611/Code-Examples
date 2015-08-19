@@ -1,0 +1,86 @@
+library(faraway)
+library(stargazer)
+library(RColorBrewer)
+
+summary(sat)
+head(sat)
+
+
+## Testing linearity assumption ##
+
+
+#Check distribution of data for the relevant variables
+
+plot(sat$total)
+plot(sat$expend)
+plot(sat$salary)
+plot(sat$ratio)
+plot(sat$takers)
+
+# estimate bivariate lines of best fit 
+
+sat.diag1 <- lm(sat$total~sat$expend)
+sat.diag2 <- lm(sat$total~sat$salary)
+sat.diag3 <- lm(sat$total~sat$ratio)
+sat.diag4 <- lm(sat$total~sat$takers)
+
+## Bivariate Regression Plots ##
+
+pdf("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 5/regplots.pdf")
+
+par(mfrow=c(2,2))
+
+plot(sat$total~sat$expend, main="(a) Expenditures", ylab = "Avg. Total SAT Score", xlab = "Avg. Expenditures per Pupil")
+abline(sat.diag1, col="red")
+
+plot(sat$total~sat$salary, main="(b) Salary", ylab = "Avg. Total SAT Score", xlab = "Avg. Teacher Salary")
+abline(sat.diag2, col="red")
+
+plot(sat$total~sat$ratio, main="(c) Ratio", ylab = "Avg. Total SAT Score", xlab = "Avg. Student:Teacher Ratio")
+abline(sat.diag3, col="red")
+
+plot(sat$total~sat$takers, main="(d) Takers", ylab = "Avg. Total SAT Score", xlab = "Pct. Students Taking SAT")
+abline(sat.diag4, col="red")
+
+dev.off()
+
+## Check for collinearity of the predictors ##
+
+sat.1 <- lm(sat$total ~ sat$expend + sat$salary + sat$ratio + sat$takers)
+
+summary(sat.1)
+
+stargazer(sat.1, title = "SAT Scores", covariate.labels = c("Expenditure per Pupil", "Avg. Teacher Salary", "Avg. Pupil/Teacher Ratio", "Pct. Students Taking SAT"), dep.var.labels = "Avg. Total SAT Score", font.size = "small")
+
+# check pairwise correlations
+
+sat.mat <- cbind(sat$expend, sat$salary, sat$ratio, sat$takers)
+cor(sat.mat)
+
+# regress each predictor on every other predictor
+
+cotest1 <- lm(sat$expend ~ sat$salary + sat$ratio + sat$takers)
+cotest2 <- lm(sat$salary ~ sat$expend + sat$ratio + sat$takers)
+cotest3 <- lm(sat$ratio ~ sat$salary + sat$expend + sat$takers)
+cotest4 <- lm(sat$takers ~ sat$salary + sat$ratio + sat$expend)
+
+summary(cotest1)
+summary(cotest2)
+summary(cotest3)
+summary(cotest4)
+
+# check eigenvalue decomposition
+
+sat.x <- model.matrix(sat.1)[,-1]
+sat.e <- eigen(t(sat.x)%*%sat.x)
+sat.e$val
+sqrt(sat.e$val[1]/sat.e$val)
+
+# check vif
+
+vif(sat.x)
+
+# check sqrt(vif) = number of times greater the SE is than it would have been had there been no multicollinearity
+
+sqrt(vif(sat.x))
+
