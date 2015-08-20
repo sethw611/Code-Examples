@@ -1,0 +1,62 @@
+library(foreign)
+library(stargazer)
+library(xlsx)
+library(RColorBrewer)
+
+# Read in data. Feel free to email or message if you want this dataset. Otherwise you can use your own and simply replace the relevant variable names, etc.
+
+init <- read.delim("filenamepath.../initiative_labeled.tab")
+
+stateinit <- read.xlsx("filenamepath.../Initiatives.xlsx",1)
+
+init.n <- merge(init,stateinit, by.x="state", by.y="State", all.x=TRUE)
+init.n$numit00[is.na(init.n$numit00)]<-0
+init.n$useit00[is.na(init.n$useit00)]<-0
+
+
+
+## Visualization ##
+# This is an example of how to communicate several different characteristics of the data using a single scatterplot. 
+# Note: A scatterplot containing this much information would not necessarily be appropriate for professional presentations. This example is intended to show what is possible. 
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 6/init.pdf")
+symbols <- ifelse (init$presence00==1, 24, 25)
+colors <- ifelse (init$presence00==1, "lightblue", "orange")
+plot(jitter(init$ideol9599), jitter(init$policy2000), pch=symbols, col=colors, cex=(init$govideol/10), xlab="Public Opinion Liberalism", 
+     ylab="Policy Liberalism", main="Policy Congruence")
+curve (cbind (1, x, 0, 1, 1*x) %*% coef(mod.2), add=TRUE, col="lightblue")
+curve (cbind (1, x, 0, 0, 0*x) %*% coef(mod.2), add=TRUE, col="orange")
+legend("topleft", legend=c("Initiative Present", "Initiative Not Present"),pch=c(24,25), col=c("lightblue", "orange"))
+dev.off()
+
+
+## Prediction ##
+# Use a subset of the original data set as a training set. 
+
+set.seed(123) #  set your seed 
+index.3 <- rbinom(nrow(init), 1, 0.3) # create and index to divide the data with 30% in expectation
+mean(index.3) 
+test.3 <- subset(init, index==1) # create test set
+train.3 <- subset(init, index==0) # create training set
+tmod.3 <- lm(policy2000 ~ ideol2000 + govideol + use00 + ideol2000:use00, data=train.3) # estimate the model on the training set
+preds.3 <- predict(tmod.3,new=test.3,interval="prediction") # generate predictions for the test set
+mean(preds.3[,1]) # mean prediction error
+
+
+## Cross-Validation ##
+
+library(boot)
+glm1 <- glm(policy2000 ~ ideol2000 + govideol + use00 + ideol2000:use00, data=init, family="gaussian")
+summary(glm1)
+
+
+# Four fold cross validation
+cv4f <- cv.glm(data=init, glm1, K=4)
+cv4f # first delta value is raw cv and second is adjusted (for the bias of not using LOOCV)
+
+
+# LOOCV
+loo <- cv.glm(data=init, glm1, K=nrow(init))
+loo
+
+
