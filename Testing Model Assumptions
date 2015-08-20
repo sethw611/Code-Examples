@@ -26,7 +26,7 @@ sat.diag4 <- lm(sat$total~sat$takers)
 
 ## Bivariate Regression Plots ##
 
-pdf("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 5/regplots.pdf")
+pdf("filepathname.../regplots.pdf")
 
 par(mfrow=c(2,2))
 
@@ -88,7 +88,7 @@ sqrt(vif(sat.x))
 
 # check for homoskedasticity in the residuals
 
-pdf("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 5/resplot.pdf")
+pdf("filepathname.../resplot.pdf")
 
 par(mfrow=c(1,1))
 plot(fitted(sat.1), residuals(sat.1), xlab = "Fitted", ylab = "Residuals")
@@ -151,7 +151,7 @@ sum(hatv)
 
 # generate half-normal plot
 
-pdf("/Users/TheWalkers2/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 5/half1.pdf")
+pdf("filepathname.../half1.pdf")
 
 par(mfrow=c(1,1))
 halfnorm(hatv, ylab="Leverages", labs= row.names(sat))
