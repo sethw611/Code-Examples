@@ -1,0 +1,163 @@
+library(texreg)
+library(arm)
+
+## Classification using logistic regression. Predicting vote choice in 1992 pres election using demographic and political variables. Also determining whether inclusion of party id and ideology improve prediction. Data comes from American National Election Survey (ANES) and can be found on their website ##
+
+nes <- read.table("filepathname.../RealNES.RData")
+
+summary(nes)
+
+# subset data to include only observations from the 1992 election. 
+
+nes.92 <- nes[(nes$year==1992),]
+
+# alternatively can use: nes.92 <- subset(nes, year==1992)
+
+summary(nes.92)
+
+## Two Logit Models ##
+# "Unrestricted" model - includes party id and ideology. 
+
+bush.u <- glm(nes.92$vote ~ nes.92$female + nes.92$black + nes.92$age.discrete + nes.92$educ1 + nes.92$income + nes.92$pid + nes.92$ideo, family=binomial(link=logit))
+
+summary(bush.u)
+
+# "Restricted" model - demographic variables only.
+
+bush.r <- glm(nes.92$vote ~ nes.92$female + nes.92$black + nes.92$age.discrete + nes.92$educ1 + nes.92$income, family=binomial(link=logit))
+
+summary(bush.r)
+
+# Generate table output for LaTeX
+
+texreg(list(bush.r, bush.u), stars=numeric(0), custom.coef.names=c("Intercept", "Female", "Black", "Age", "Education", "Income", "Party ID", "Ideology"), fontsize="small", custom.model.names=c("Demographic Model", "Political Model"))
+
+
+
+## Prediction ##
+
+# On average, what is the probability that an average-aged person will vote for Bush?
+
+# first, can see what average age is, though not strictly necessary for calculation, is definitely substantively relevant
+summary(nes.92$age.discrete)
+
+# restricted model first
+# generate predictions for each observation by taking the inverse-logit of the model with age held at its mean and all other predictors varying. Then take the mean of the predictions. This tells you the average probability that an average-aged individual will vote for Bush in the 1992 election regardless of their other characteristics
+
+pred.age <- invlogit(coef(bush.r)[1] + coef(bush.r)[2]*nes.92$female + coef(bush.r)[3]*nes.92$black + coef(bush.r)[4]*mean(nes.92$age.discrete) + coef(bush.r)[5]*nes.92$educ1 + coef(bush.r)[6]*nes.92$income)
+mean(pred.age)
+
+# then unrestricted
+
+pred.ageu <- invlogit(coef(bush.u)[1] + coef(bush.u)[2]*nes.92$female + coef(bush.u)[3]*nes.92$black + coef(bush.u)[4]*mean(nes.92$age.discrete) + coef(bush.u)[5]*nes.92$educ1 + coef(bush.u)[6]*nes.92$income + coef(bush.u)[7]*nes.92$pid + coef(bush.u)[8]*nes.92$ideo)
+mean(pred.ageu)
+
+summary(nes.92$female)
+
+invlogit(coef(bush.r)[1] + coef(bush.r)[2]*1) - invlogit(coef(bush.r)[1] + coef(bush.r)[2]*0)
+
+invlogit(coef(bush.u)[1] + coef(bush.u)[2]*1) - invlogit(coef(bush.u)[1] + coef(bush.u)[2]*0)
+
+summary(nes.92$black)
+
+invlogit(coef(bush.r)[1] + coef(bush.r)[3]*1) - invlogit(coef(bush.r)[1] + coef(bush.r)[3]*0)
+
+invlogit(coef(bush.u)[1] + coef(bush.u)[3]*1) - invlogit(coef(bush.u)[1] + coef(bush.u)[3]*0)
+
+
+
+summary(nes.92$educ1)
+
+eta.r1 <- coef(bush.r)[1] + coef(bush.r)[6]*mean(nes.92$income)
+(coef(bush.r)[6]*exp(eta.r1))/(1+exp(eta.r1))^2
+
+eta.u1 <- coef(bush.u)[1] + coef(bush.u)[6]*mean(nes.92$income)
+(coef(bush.u)[6]*exp(eta.u1))/(1+exp(eta.u1))^2
+
+mean.probr <- invlogit(coef(bush.r)[1] + coef(bush.r)[2]*mean(nes.92$female) + coef(bush.r)[3]*mean(nes.92$black) + coef(bush.r)[4]*mean(nes.92$age.discrete) + coef(bush.r)[5]*mean(nes.92$educ1) + coef(bush.r)[6]*mean(nes.92$income)) 
+
+mean.probr
+
+nes.92.na <- nes.92[!(is.na(nes.92$pid)),]
+nes.92.na <- nes.92.na[!(is.na(nes.92.na$ideo)),]
+
+mean.probu <- invlogit(coef(bush.u)[1] + coef(bush.u)[2]*mean(nes.92.na$female) + coef(bush.u)[3]*mean(nes.92.na$black) + coef(bush.u)[4]*mean(nes.92.na$age.discrete) + coef(bush.u)[5]*mean(nes.92.na$educ1) + coef(bush.u)[6]*mean(nes.92.na$income) + coef(bush.u)[7]*mean(nes.92.na$pid) + coef(bush.u)[8]*mean(nes.92.na$ideo)) 
+
+mean.probu
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/ropes1.pdf")
+
+par(mar=c(3,6,2,2))
+longnames.r <- c("(Intercept)", "Female", "Black", "Age", "Education", "Income")
+coefplot(bush.r, longnames.r, CI=1, xlab="", ylab="", main="Logit Estimates: Demographic Model")
+axis(1)
+axis(3)
+box("figure", lwd=2)
+
+dev.off()
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/ropes2.pdf")
+
+par(mar=c(3,6,2,2))
+longnames.u <- c("(Intercept)", "Female", "Black", "Age", "Education", "Income", "Party ID", "Ideology")
+coefplot(bush.u, longnames.u, CI=1, xlab="", ylab="", main="Logit Estimates: Political Model")
+axis(1)
+axis(3)
+box("figure", lwd=2)
+
+dev.off()
+
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/predprob.pdf")
+
+curve (invlogit(bush.u$coef[1] + bush.u$coef[7]*x), .5, 3.5,     ylim=c(-.01,1.01), xlim=c(.5,3.5), xaxt="n", xaxs="i", mgp=c(2,.5,0),ylab="Pr(Vote for Bush)", xlab="Party ID", lwd=1)
+sim.1 <- sim(bush.u, n.sims=1000)
+for (j in 1:1000){
+	curve (invlogit(coef(sim.1)[j,1] + coef(sim.1)[j,7]*x), col="gray", lwd=.5, add=T)}
+	curve(invlogit(bush.u$coef[1] + bush.u$coef[7]*x), add=T)
+	axis(1, 1:3, mgp=c(2,.5,0))
+	mtext ("(democrat)", 1, 1.5, at=1, adj=.5)
+	mtext ("(republican)", 1, 1.5, at=3, adj=.5)
+	points (jitter(nes.92$pid, 1.5), jitter(nes.92$vote, 0.1), pch=20, cex=.3)
+	
+	dev.off()
+
+ll.bushu <- logLik(bush.u)
+ll.bushu
+
+ll.bushr <- logLik(bush.r)
+ll.bushr
+
+LR.bush <- -2*(ll.bushr - ll.bushu)
+LR.bush
+
+dchisq(LR.bush, df=1)
+
+aic.bushu <- d.bushu + 2*length(bush.u$coef)
+aic.bushu
+
+aic.bushr <- d.bushr + 2*length(bush.r$coef)
+aic.bushr
+
+bic.bushu <- d.bushu + length(bush.u$coef)*log(nobs(bush.u))
+bic.bushu
+
+bic.bushr <- d.bushr + length(bush.r$coef)*log(nobs(bush.r))
+bic.bushr
+
+
+
+inv.logit <- inv.logit <- function(x){
+	exp(x)/(1+exp(x))
+}
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/invlog.pdf")
+
+curve ((exp(x)/(1+exp(x))),-5,5,col="red", xlab="x", ylab="Pr(y=1)")
+curve ((exp(2+x)/(1+exp(2+x))), -5,5,col="blue2", add=T, xlab="x", ylab="Pr(y=1)")
+curve ((exp(2*x)/(1+exp(2*x))),-5,5,col="orange", add=T, xlab="x", ylab="Pr(y=1)")
+curve ((exp(2+2*x)/(1+exp(2+2*x))),-5,5,col="darkgreen", add=T, xlab="x", ylab="Pr(y=1)")
+curve ((exp(-2*x)/(1+exp(-2*x))),-5,5,col="purple2", add=T, xlab="x", ylab="Pr(y=1)")
+legend("right", legend=c(expression(paste("Pr(y=1) = ", logit^-1 ,"(x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(2+x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(2x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(2+2x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(-2x)"))), fill=c("red","blue2","orange","darkgreen","purple2"))
+
+dev.off()
