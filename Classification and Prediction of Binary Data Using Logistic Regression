@@ -36,37 +36,73 @@ texreg(list(bush.r, bush.u), stars=numeric(0), custom.coef.names=c("Intercept", 
 
 ## Prediction ##
 
-# On average, what is the probability that an average-aged person will vote for Bush?
+# On average, what is the probability that a person with average income will vote for Bush?
 
-# first, can see what average age is, though not strictly necessary for calculation, is definitely substantively relevant
+# first, can see what average income is. Though not strictly necessary for calculation, usually substantively relevant.
 summary(nes.92$age.discrete)
+# or
+mean(nes.92$income)
 
 # restricted model first
-# generate predictions for each observation by taking the inverse-logit of the model with age held at its mean and all other predictors varying. Then take the mean of the predictions. This tells you the average probability that an average-aged individual will vote for Bush in the 1992 election regardless of their other characteristics
+# generate predictions for each observation by taking the inverse-logit of the model with income held at its mean and all other predictors varying. Then take the mean of the predictions. This effectively tells you the average probability that an individual with average income will vote for Bush in the 1992 election regardless of their other characteristics.
 
-pred.age <- invlogit(coef(bush.r)[1] + coef(bush.r)[2]*nes.92$female + coef(bush.r)[3]*nes.92$black + coef(bush.r)[4]*mean(nes.92$age.discrete) + coef(bush.r)[5]*nes.92$educ1 + coef(bush.r)[6]*nes.92$income)
-mean(pred.age)
+pred.incr <- invlogit(coef(bush.r)[1] + coef(bush.r)[2]*nes.92$female + coef(bush.r)[3]*nes.92$black + coef(bush.r)[4]*nes.92$age.discrete + coef(bush.r)[5]*nes.92$educ1 + coef(bush.r)[6]*mean(nes.92$income))
+mean(pred.incr)
 
 # then unrestricted
 
-pred.ageu <- invlogit(coef(bush.u)[1] + coef(bush.u)[2]*nes.92$female + coef(bush.u)[3]*nes.92$black + coef(bush.u)[4]*mean(nes.92$age.discrete) + coef(bush.u)[5]*nes.92$educ1 + coef(bush.u)[6]*nes.92$income + coef(bush.u)[7]*nes.92$pid + coef(bush.u)[8]*nes.92$ideo)
-mean(pred.ageu)
+pred.incu <- invlogit(coef(bush.u)[1] + coef(bush.u)[2]*nes.92$female + coef(bush.u)[3]*nes.92$black + coef(bush.u)[4]*nes.92$age.discrete + coef(bush.u)[5]*nes.92$educ1 + coef(bush.u)[6]*mean(nes.92$income) + coef(bush.u)[7]*nes.92$pid + coef(bush.u)[8]*nes.92$ideo)
+mean(pred.incu)
+
+
+# Are women more or less likely to vote for Bush, and by how much? 
+
+# Once more look at your variable first (though in practice this should be done before running the model in the first place).
 
 summary(nes.92$female)
 
-invlogit(coef(bush.r)[1] + coef(bush.r)[2]*1) - invlogit(coef(bush.r)[1] + coef(bush.r)[2]*0)
+# Simply using the method above, but subtracting the probability that a man will vote for Bush from the probability that a woman will. For ease of reference can name new variables to say man and woman though that is not necessary.
 
-invlogit(coef(bush.u)[1] + coef(bush.u)[2]*1) - invlogit(coef(bush.u)[1] + coef(bush.u)[2]*0)
+# restricted:
+
+woman <- 1
+man <- 0
+fem.diff.predr <- invlogit(coef(bush.r)[1] + coef(bush.r)[2]*woman + coef(bush.r)[3]*nes.92$black + coef(bush.r)[4]*nes.92$age.discrete + coef(bush.r)[5]*nes.92$educ1 + coef(bush.r)[6]*nes.92$income) - invlogit(coef(bush.r)[1] + coef(bush.r)[2]*man + coef(bush.r)[3]*nes.92$black + coef(bush.r)[4]*nes.92$age.discrete + coef(bush.r)[5]*nes.92$educ1 + coef(bush.r)[6]*nes.92$income)
+mean(fem.diff.predr)
+
+# unrestricted:
+
+fem.diff.predu <- invlogit(coef(bush.u)[1] + coef(bush.u)[2]*woman + coef(bush.u)[3]*nes.92$black + coef(bush.u)[4]*nes.92$age.discrete + coef(bush.u)[5]*nes.92$educ1 + coef(bush.u)[6]*nes.92$income + coef(bush.u)[7]*nes.92$pid + coef(bush.u)[8]*nes.92$ideo) - invlogit(coef(bush.u)[1] + coef(bush.u)[2]*man + coef(bush.u)[3]*nes.92$black + coef(bush.u)[4]*nes.92$age.discrete + coef(bush.u)[5]*nes.92$educ1 + coef(bush.u)[6]*nes.92$income + coef(bush.u)[7]*nes.92$pid + coef(bush.u)[8]*nes.92$ideo)
+mean(fem.diff.predu)
+
+# Do the same for blacks. Are blacks more or less likely to vote for Bush than non-blacks, and by how much?
+
+# look at variable
 
 summary(nes.92$black)
+# or simply
+mean(nes.92$black)
 
-invlogit(coef(bush.r)[1] + coef(bush.r)[3]*1) - invlogit(coef(bush.r)[1] + coef(bush.r)[3]*0)
+black <- 1
+nblack <- 0
 
-invlogit(coef(bush.u)[1] + coef(bush.u)[3]*1) - invlogit(coef(bush.u)[1] + coef(bush.u)[3]*0)
+# restricted
+
+blk.diff.predr <- invlogit(coef(bush.r)[1] + coef(bush.r)[2]*nes.92$female + coef(bush.r)[3]*black + coef(bush.r)[4]*nes.92$age.discrete + coef(bush.r)[5]*nes.92$educ1 + coef(bush.r)[6]*nes.92$income) - invlogit(coef(coef(bush.r)[1] + coef(bush.r)[2]*nes.92$female + coef(bush.r)[3]*nblack + coef(bush.r)[4]*nes.92$age.discrete + coef(bush.r)[5]*nes.92$educ1 + coef(bush.r)[6]*nes.92$income)
+mean(blk.diff.predr)
+
+# unrestricted
+
+blk.diff.predu <- invlogit(coef(bush.u)[1] + coef(bush.u)[2]*nes.92$female + coef(bush.u)[3]*black + coef(bush.u)[4]*nes.92$age.discrete + coef(bush.u)[5]*nes.92$educ1 + coef(bush.u)[6]*nes.92$income + coef(bush.u)[7]*nes.92$pid + coef(bush.u)[8]*nes.92$ideo) - invlogit(coef(bush.u)[1] + coef(bush.u)[2]*nes.92$female + coef(bush.u)[3]*nblack + coef(bush.u)[4]*nes.92$age.discrete + coef(bush.u)[5]*nes.92$educ1 + coef(bush.u)[6]*nes.92$income + coef(bush.u)[7]*nes.92$pid + coef(bush.u)[8]*nes.92$ideo)
+mean(blk.diff.predu)
+
+# Of course can do this with value on any of the predictors. 
 
 
 
-summary(nes.92$educ1)
+# How sensitive are our predictions to changes in the value of a given variable? For instance, how much will the probability of an individual (with some given level of education) voting for Bush change if they're education level goes up (or down) by one unit?
+
+# Take the 
 
 eta.r1 <- coef(bush.r)[1] + coef(bush.r)[6]*mean(nes.92$income)
 (coef(bush.r)[6]*exp(eta.r1))/(1+exp(eta.r1))^2
