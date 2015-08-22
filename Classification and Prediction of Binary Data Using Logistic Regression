@@ -100,26 +100,68 @@ mean(blk.diff.predu)
 
 
 
-# How sensitive are our predictions to changes in the value of a given variable? For instance, how much will the probability of an individual (with some given level of education) voting for Bush change if they're education level goes up (or down) by one unit?
+# How sensitive are our predictions to changes in the value of a given variable? For instance, how much will the probability of an individual voting for Bush change if they're income level goes up by one unit?
 
-# Take the 
+# Because the distribution of the logit function is non-linear, the effect of the coefficient on the probability of an outcome varies with the value of the corresponding variable.  Can be useful to know the largest possible change in the probability of voting for Bush resulting from a one unit increase in our predictor, which generally occurs at the mean of that variable. 
+
+
+# restricted
+
+# first, calculate the value of the linear predictor. Note: do not include covariates because we are looking at the independent effect of the coefficient on income.
 
 eta.r1 <- coef(bush.r)[1] + coef(bush.r)[6]*mean(nes.92$income)
+
+# second, take the derivative of the logistic curve at the mean 
+
 (coef(bush.r)[6]*exp(eta.r1))/(1+exp(eta.r1))^2
 
-eta.u1 <- coef(bush.u)[1] + coef(bush.u)[6]*mean(nes.92$income)
-(coef(bush.u)[6]*exp(eta.u1))/(1+exp(eta.u1))^2
+# the result can be interpreted as the percent change in the probability of voting for Bush given a one unit increase in income over the mean
 
-mean.probr <- invlogit(coef(bush.r)[1] + coef(bush.r)[2]*mean(nes.92$female) + coef(bush.r)[3]*mean(nes.92$black) + coef(bush.r)[4]*mean(nes.92$age.discrete) + coef(bush.r)[5]*mean(nes.92$educ1) + coef(bush.r)[6]*mean(nes.92$income)) 
 
-mean.probr
+# unrestricted
 
-nes.92.na <- nes.92[!(is.na(nes.92$pid)),]
-nes.92.na <- nes.92.na[!(is.na(nes.92.na$ideo)),]
+# for this let's create a function
 
-mean.probu <- invlogit(coef(bush.u)[1] + coef(bush.u)[2]*mean(nes.92.na$female) + coef(bush.u)[3]*mean(nes.92.na$black) + coef(bush.u)[4]*mean(nes.92.na$age.discrete) + coef(bush.u)[5]*mean(nes.92.na$educ1) + coef(bush.u)[6]*mean(nes.92.na$income) + coef(bush.u)[7]*mean(nes.92.na$pid) + coef(bush.u)[8]*mean(nes.92.na$ideo)) 
+logderiv <- function(eta, beta){
+	(beta*exp(eta))/((1+exp(eta))^2)
+	return(output)
+	}
 
-mean.probu
+eta <- coef(bush.u)[1] + coef(bush.u)[6]*mean(nes.92$income)
+beta <- coef(bush.u)[6]
+logderiv(eta, beta)
+
+# can also get virtually the same result by simply dividing eta by 4.
+
+# restricted
+
+eta.r1/4
+
+# unrestricted
+
+eta/4
+
+
+# looking at age and income, which variable has a larger substantive effect. values of the coefficients are misleading due to difference in the variances of the two variables. To compare, calculate the change in probability resulting from a standard deviation increase in each variable.   
+
+# income
+
+eta <- coef(bush.r)[1] + coef(bush.r)[6]*sd(nes.92$income)
+eta/4
+
+# age
+
+eta <- coef(bush.r)[1] + coef(bush.r)[4]*sd(nes.92$age.discrete)
+eta/4
+
+# simply compare the two numbers. whichever is larger corresponds to the variable with the larger effect.
+
+
+## Visualize ##
+
+# rope plots: plots the coefficients along with CI. Can visually observe which coefficients are/are not statistically different from zero.
+
+# restricted
 
 pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/ropes1.pdf")
 
@@ -132,6 +174,8 @@ box("figure", lwd=2)
 
 dev.off()
 
+# unrestricted
+
 pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/ropes2.pdf")
 
 par(mar=c(3,6,2,2))
@@ -143,6 +187,8 @@ box("figure", lwd=2)
 
 dev.off()
 
+
+# Predicted probability curves with simulated confidence intervals. Can see 1) how the confidence in our estimates changes as the value of a variable increases and 2) the range of possible confidence intervals. This example uses party id, which takes on three possible values. Graph also shows how the points cluster.
 
 pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/predprob.pdf")
 
@@ -158,42 +204,5 @@ for (j in 1:1000){
 	
 	dev.off()
 
-ll.bushu <- logLik(bush.u)
-ll.bushu
-
-ll.bushr <- logLik(bush.r)
-ll.bushr
-
-LR.bush <- -2*(ll.bushr - ll.bushu)
-LR.bush
-
-dchisq(LR.bush, df=1)
-
-aic.bushu <- d.bushu + 2*length(bush.u$coef)
-aic.bushu
-
-aic.bushr <- d.bushr + 2*length(bush.r$coef)
-aic.bushr
-
-bic.bushu <- d.bushu + length(bush.u$coef)*log(nobs(bush.u))
-bic.bushu
-
-bic.bushr <- d.bushr + length(bush.r$coef)*log(nobs(bush.r))
-bic.bushr
 
 
-
-inv.logit <- inv.logit <- function(x){
-	exp(x)/(1+exp(x))
-}
-
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/invlog.pdf")
-
-curve ((exp(x)/(1+exp(x))),-5,5,col="red", xlab="x", ylab="Pr(y=1)")
-curve ((exp(2+x)/(1+exp(2+x))), -5,5,col="blue2", add=T, xlab="x", ylab="Pr(y=1)")
-curve ((exp(2*x)/(1+exp(2*x))),-5,5,col="orange", add=T, xlab="x", ylab="Pr(y=1)")
-curve ((exp(2+2*x)/(1+exp(2+2*x))),-5,5,col="darkgreen", add=T, xlab="x", ylab="Pr(y=1)")
-curve ((exp(-2*x)/(1+exp(-2*x))),-5,5,col="purple2", add=T, xlab="x", ylab="Pr(y=1)")
-legend("right", legend=c(expression(paste("Pr(y=1) = ", logit^-1 ,"(x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(2+x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(2x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(2+2x)")), expression(paste("Pr(y=1) = ", logit^-1 ,"(-2x)"))), fill=c("red","blue2","orange","darkgreen","purple2"))
-
-dev.off()
