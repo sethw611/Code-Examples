@@ -1,0 +1,181 @@
+library(faraway)
+library(texreg)
+library(MASS)
+
+
+## Poisson Model for Count Data ##
+
+# look at dataset
+
+summary(africa)
+
+
+## what country-level factors contribute or are related to the number of military coups ##
+
+
+# first, how are variables distributed? Would some variables benefit from a log transformation (in this instance are the values on a given variable widely dispersed)? look at histograms.
+
+hist(africa$oligarchy, breaks=19)
+hist(log(africa$oligarchy), breaks=19)
+
+hist(africa$pollib)
+hist(log(africa$pollib))
+
+hist(africa$parties, breaks=30, xlab="Number of Parties", main="")
+box(lty="solid")
+
+hist(log(africa$parties),breaks=30, xlab="log(Number of Parties)", main="")
+box(lty="solid")
+
+plot(africa$pctvote)
+
+hist(africa$numregim)
+
+hist(log(africa$numelec))
+hist(africa$numelec)
+
+plot(africa$popn)
+
+plot(africa$popn/africa$size)
+
+plot(log(africa$popn/africa$size))
+
+plot(log(africa$popn/africa$size)*log(africa$parties))
+
+
+## Model Building ##
+
+# Let's start with the null model and add one predictor at a time. Can look at AIC/BIC/Deviance (which one(s) depends on the degree to which you want to account for sample size and/or to which you value parsimony of the model) to compare model fits and determine if addition of a variable to the model contributes to its predictive power. After each model, can also look at residual vs. fitted plot to check for constant variance of the errors. Note: if you are interested in my logic behind the variables I chose to add and the transformations I perform, feel free to message me and ask. 
+
+coup.null <- glm(africa$miltcoup ~ 1, family=poisson)
+summary(coup.null)
+
+plot(africa$pollib, africa$miltcoup)
+
+
+coup.1 <- glm(africa$miltcoup ~ africa$pollib, family=poisson)
+summary(coup.1)
+
+plot(predict(coup.1), residuals(coup.1))
+
+
+coup.2 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy, family=poisson)
+summary(coup.2)
+
+plot(predict(coup.2), residuals(coup.2))
+
+
+coup.3 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties, family=poisson)
+summary(coup.3)
+
+plot(predict(coup.3), residuals(coup.3))
+
+
+coup.4 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties + africa$pctvote, family=poisson)
+summary(coup.4)
+
+plot(predict(coup.4), residuals(coup.4))
+
+
+coup.5 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties + africa$pctvote + africa$numelec, family=poisson)
+summary(coup.5)
+
+plot(predict(coup.5), residuals(coup.5))
+
+
+coup.6 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties + africa$pctvote + africa$numregim, family=poisson)
+summary(coup.6)
+
+plot(predict(coup.6), residuals(coup.6))
+
+
+coup.7 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties + africa$pctvote + africa$popn, family=poisson)
+summary(coup.7)
+
+plot(predict(coup.7), residuals(coup.7))
+
+
+coup.8 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties + africa$pctvote + africa$size, family=poisson)
+summary(coup.8)
+
+plot(predict(coup.8), residuals(coup.8))
+
+
+coup.9 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties + africa$pctvote + africa$popn/africa$size, family=poisson)
+summary(coup.9)
+
+plot(predict(coup.9), residuals(coup.9))
+
+
+coup.10 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$parties + africa$pctvote + log(africa$popn/africa$size), family=poisson)
+summary(coup.10)
+
+plot(predict(coup.10), residuals(coup.10))
+
+
+coup.11 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + log(africa$parties) + africa$pctvote + log(africa$popn/africa$size), family=poisson)
+summary(coup.11)
+
+plot(predict(coup.11), residuals(coup.11))
+
+
+coup.12 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$pctvote:africa$oligarchy + log(africa$parties) + africa$pctvote + log(africa$popn/africa$size) + africa$numelec + africa$numregim + log(africa$popn/africa$size):log(africa$parties) + africa$numelec:africa$numregim, family=poisson)
+summary(coup.12)
+
+plot(predict(coup.12), residuals(coup.12))
+
+# twelve looked ok. tried looking at distribution of residuals.
+
+hist(residuals(coup.12), breaks=15)
+
+halfnorm(residuals(coup.12))
+
+
+# Not quite. try something new.  13 looks good.  
+
+coup.13 <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$oligarchy:africa$pctvote + log(africa$parties) + africa$pctvote + log(africa$popn/africa$size) + log(africa$popn/africa$size):log(africa$parties), family=poisson)
+summary(coup.13)
+
+
+
+plot(predict(coup.13), residuals(coup.13), xlab="Fitted", ylab="Residuals", main="Fitted vs. Residuals", pch=16)
+abline(h=0, col="red")
+
+halfnorm(residuals(coup.13), main="Halfnorm Plot")
+
+hist(residuals(coup.13), breaks=15)
+
+texreg(coup.13, ci.force=T)
+
+
+# check for overdipersion (i.e. the mean of the rate rate parameter (lambda) in the poisson distribution does not equal the variance of the rate parameter (as it should)).
+
+# first need new subset of the data where observations are deleted which have na values on the "pollib" and "pctvote" variables. need to use a variable to draw the plot and subtract the fitted values from the model, and the model automatically used case-wise deletion to remove those observations. removing the na's in the following manner will make sure the observations in the larger data set are the same ones found in the model.
+
+africa.na <- africa[!(is.na(africa$pollib)),]
+africa.na <- africa.na[!(is.na(africa.na$pctvote)),]
+
+
+plot(log(fitted(coup.13)), log((africa.na$miltcoup - fitted(coup.13))^2), xlab=expression(hat(mu)), ylab=expression((y-hat(mu))^2), main="Dispersion")
+abline(0,1)
+
+
+# can also calculate a dispersion parameter
+
+(dp <- sum(residuals(coup.13, type="pearson")^2)/coup.13$df.res)
+
+summary(coup.13, dispersion=dp)
+
+drop1(coup.13, test="F")
+
+
+# Can also try a quasi-poisson model
+
+coup.13q <- glm(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$oligarchy:africa$pctvote + log(africa$parties) + africa$pctvote + log(africa$popn/africa$size) + log(africa$popn/africa$size):log(africa$parties), family=quasipoisson)
+summary(coup.13q)
+
+
+# or a negative binomial model
+
+coup.13nb <- glm.nb(africa$miltcoup ~ africa$pollib + africa$oligarchy + africa$oligarchy:africa$pctvote + log(africa$parties) + africa$pctvote + log(africa$popn/africa$size) + log(africa$popn/africa$size):log(africa$parties))
+summary(coup.13nb)
