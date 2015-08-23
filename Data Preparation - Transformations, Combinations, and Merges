@@ -1,0 +1,257 @@
+library(gdata)
+library(texreg)
+
+
+## Data Preparation - Transformation, combine for new variables, and merging data from other sources. ##
+
+# NOTE: Some of the data came from a table on a webpage that was not availoable in a downloadable format. Hence the manual entries. 
+
+# Dataset on intiatives pulled from same source used by the authors of the paper.
+init.state <- read.xls("filepathname.../initiatives.xls", header=T)
+summary(init.state)
+
+# Original Dataset provided by authors.
+init <- read.delim("filepathname.../initiative_labeled.tab")
+summary(init)
+
+
+# Limit additional data to years prior to 2000
+init.state <- init.state[(init.state$year<2000),]
+summary(init.state)
+
+# Create variable for avg % of initiatives passed per yr
+avginit <- aggregate(init.state$approvalrate, by=list(State=init.state$state), FUN="mean") 
+colnames(avginit) <- c("state","pctapprove")
+
+# Create variable for total number of initiatives on ballot since initiatives adopted
+totinit <- aggregate(init.state$number, by=list(dropme=init.state$state), FUN="sum")
+colnames(totinit) <- c("dropme","totinit")
+
+# add to same data.frame as avg % passed
+avginit$totinit <- totinit$totinit
+
+# Create new variable for the year initiatives adopted by each state. From same website as the other data, but in a table viewable only on the web.
+avginit$adopt <- rep(NA, length(avginit$state))
+
+avginit$adopt[which(avginit$state=="AK")] <- 1956
+avginit$adopt[which(avginit$state=="AZ")] <- 1911
+avginit$adopt[which(avginit$state=="AR")] <- 1910
+avginit$adopt[which(avginit$state=="CA")] <- 1911
+avginit$adopt[which(avginit$state=="CO")] <- 1912
+avginit$adopt[which(avginit$state=="FL")] <- 1972
+avginit$adopt[which(avginit$state=="ID")] <- 1912
+avginit$adopt[which(avginit$state=="IL")] <- 1970
+avginit$adopt[which(avginit$state=="ME")] <- 1908
+avginit$adopt[which(avginit$state=="MA")] <- 1918
+avginit$adopt[which(avginit$state=="MI")] <- 1908
+avginit$adopt[which(avginit$state=="MS")] <- 1914
+avginit$adopt[which(avginit$state=="MO")] <- 1908
+avginit$adopt[which(avginit$state=="MT")] <- 1904
+avginit$adopt[which(avginit$state=="NE")] <- 1912
+avginit$adopt[which(avginit$state=="NV")] <- 1905
+avginit$adopt[which(avginit$state=="ND")] <- 1914
+avginit$adopt[which(avginit$state=="OH")] <- 1912
+avginit$adopt[which(avginit$state=="OK")] <- 1907
+avginit$adopt[which(avginit$state=="OR")] <- 1902
+avginit$adopt[which(avginit$state=="SD")] <- 1898
+avginit$adopt[which(avginit$state=="UT")] <- 1900
+avginit$adopt[which(avginit$state=="WA")] <- 1912
+avginit$adopt[which(avginit$state=="WY")] <- 1968
+
+# Var: No. of yrs since initiative adopted
+avginit$inityrs <- 2000 - avginit$adopt
+
+# Var: avg num of initiatives on the ballot each year
+avginit$avgnum <- avginit$totinit/avginit$inityrs
+
+# Var: dummy  - does state allow direct statutory initiatives? 1 = Y
+avginit$stdirect <- rep(0, length(avginit$state))
+
+avginit$stdirect[which(avginit$state=="AK")] <- 0
+avginit$stdirect[which(avginit$state=="AZ")] <- 1
+avginit$stdirect[which(avginit$state=="AR")] <- 1
+avginit$stdirect[which(avginit$state=="CA")] <- 1
+avginit$stdirect[which(avginit$state=="CO")] <- 1
+avginit$stdirect[which(avginit$state=="FL")] <- 0
+avginit$stdirect[which(avginit$state=="ID")] <- 1
+avginit$stdirect[which(avginit$state=="IL")] <- 0
+avginit$stdirect[which(avginit$state=="ME")] <- 0
+avginit$stdirect[which(avginit$state=="MA")] <- 0
+avginit$stdirect[which(avginit$state=="MI")] <- 0
+avginit$stdirect[which(avginit$state=="MS")] <- 0
+avginit$stdirect[which(avginit$state=="MO")] <- 1
+avginit$stdirect[which(avginit$state=="MT")] <- 1
+avginit$stdirect[which(avginit$state=="NE")] <- 1
+avginit$stdirect[which(avginit$state=="NV")] <- 0
+avginit$stdirect[which(avginit$state=="ND")] <- 1
+avginit$stdirect[which(avginit$state=="OH")] <- 0
+avginit$stdirect[which(avginit$state=="OK")] <- 1
+avginit$stdirect[which(avginit$state=="OR")] <- 1
+avginit$stdirect[which(avginit$state=="SD")] <- 1
+avginit$stdirect[which(avginit$state=="UT")] <- 1
+avginit$stdirect[which(avginit$state=="WA")] <- 1
+avginit$stdirect[which(avginit$state=="WY")] <- 0
+
+
+# Var: Dummy - does state allow indirect statutory intiatives. 1 = Y
+avginit$stindirect <- rep(0, length(avginit$state))
+
+avginit$stindirect[which(avginit$state=="AK")] <- 1
+avginit$stindirect[which(avginit$state=="AZ")] <- 0
+avginit$stindirect[which(avginit$state=="AR")] <- 0
+avginit$stindirect[which(avginit$state=="CA")] <- 0
+avginit$stindirect[which(avginit$state=="CO")] <- 0
+avginit$stindirect[which(avginit$state=="FL")] <- 0
+avginit$stindirect[which(avginit$state=="ID")] <- 0
+avginit$stindirect[which(avginit$state=="IL")] <- 0
+avginit$stindirect[which(avginit$state=="ME")] <- 1
+avginit$stindirect[which(avginit$state=="MA")] <- 1
+avginit$stindirect[which(avginit$state=="MI")] <- 1
+avginit$stindirect[which(avginit$state=="MS")] <- 0
+avginit$stindirect[which(avginit$state=="MO")] <- 0
+avginit$stindirect[which(avginit$state=="MT")] <- 0
+avginit$stindirect[which(avginit$state=="NE")] <- 0
+avginit$stindirect[which(avginit$state=="NV")] <- 1
+avginit$stindirect[which(avginit$state=="ND")] <- 0
+avginit$stindirect[which(avginit$state=="OH")] <- 1
+avginit$stindirect[which(avginit$state=="OK")] <- 0
+avginit$stindirect[which(avginit$state=="OR")] <- 0
+avginit$stindirect[which(avginit$state=="SD")] <- 0
+avginit$stindirect[which(avginit$state=="UT")] <- 1
+avginit$stindirect[which(avginit$state=="WA")] <- 1
+avginit$stindirect[which(avginit$state=="WY")] <- 1
+
+
+# Var: Does state allow indirect constitutional intitiatives. 1 = Y
+avginit$coindirect <- rep(0, length(avginit$state))
+
+avginit$coindirect[which(avginit$state=="AK")] <- 0
+avginit$coindirect[which(avginit$state=="AZ")] <- 0
+avginit$coindirect[which(avginit$state=="AR")] <- 0
+avginit$coindirect[which(avginit$state=="CA")] <- 0
+avginit$coindirect[which(avginit$state=="CO")] <- 0
+avginit$coindirect[which(avginit$state=="FL")] <- 0
+avginit$coindirect[which(avginit$state=="ID")] <- 0
+avginit$coindirect[which(avginit$state=="IL")] <- 0
+avginit$coindirect[which(avginit$state=="ME")] <- 0
+avginit$coindirect[which(avginit$state=="MA")] <- 1
+avginit$coindirect[which(avginit$state=="MI")] <- 0
+avginit$coindirect[which(avginit$state=="MS")] <- 1
+avginit$coindirect[which(avginit$state=="MO")] <- 0
+avginit$coindirect[which(avginit$state=="MT")] <- 0
+avginit$coindirect[which(avginit$state=="NE")] <- 0
+avginit$coindirect[which(avginit$state=="NV")] <- 0
+avginit$coindirect[which(avginit$state=="ND")] <- 0
+avginit$coindirect[which(avginit$state=="OH")] <- 0
+avginit$coindirect[which(avginit$state=="OK")] <- 0
+avginit$coindirect[which(avginit$state=="OR")] <- 0
+avginit$coindirect[which(avginit$state=="SD")] <- 0
+avginit$coindirect[which(avginit$state=="UT")] <- 0
+avginit$coindirect[which(avginit$state=="WA")] <- 0
+avginit$coindirect[which(avginit$state=="WY")] <- 0
+
+
+# Var: Dummy - does state allow direct constituational initiatives. 1 = Y
+avginit$codirect <- rep(0, length(avginit$state))
+
+avginit$codirect[which(avginit$state=="AK")] <- 0
+avginit$codirect[which(avginit$state=="AZ")] <- 1
+avginit$codirect[which(avginit$state=="AR")] <- 1
+avginit$codirect[which(avginit$state=="CA")] <- 1
+avginit$codirect[which(avginit$state=="CO")] <- 1
+avginit$codirect[which(avginit$state=="FL")] <- 1
+avginit$codirect[which(avginit$state=="ID")] <- 0
+avginit$codirect[which(avginit$state=="IL")] <- 1
+avginit$codirect[which(avginit$state=="ME")] <- 0
+avginit$codirect[which(avginit$state=="MA")] <- 0
+avginit$codirect[which(avginit$state=="MI")] <- 1
+avginit$codirect[which(avginit$state=="MS")] <- 0
+avginit$codirect[which(avginit$state=="MO")] <- 1
+avginit$codirect[which(avginit$state=="MT")] <- 1
+avginit$codirect[which(avginit$state=="NE")] <- 1
+avginit$codirect[which(avginit$state=="NV")] <- 1
+avginit$codirect[which(avginit$state=="ND")] <- 1
+avginit$codirect[which(avginit$state=="OH")] <- 1
+avginit$codirect[which(avginit$state=="OK")] <- 1
+avginit$codirect[which(avginit$state=="OR")] <- 1
+avginit$codirect[which(avginit$state=="SD")] <- 1
+avginit$codirect[which(avginit$state=="UT")] <- 0
+avginit$codirect[which(avginit$state=="WA")] <- 0
+avginit$codirect[which(avginit$state=="WY")] <- 0
+
+
+# Merge new variables to full data set
+init.main <- merge(init, avginit, by="state", all=T)
+
+# Code states with no intiative mechanism at all as zero on all previous variables
+init.main$pctapprove[(is.na(init.main$pctapprove))] <- 0
+init.main$totinit[(is.na(init.main$totinit))] <- 0
+init.main$adopt[(is.na(init.main$adopt))] <- 0
+init.main$inityrs[(is.na(init.main$inityrs))] <- 0
+init.main$avgnum[(is.na(init.main$avgnum))] <- 0
+init.main$stdirect[(is.na(init.main$stdirect))] <- 0
+init.main$stindirect[(is.na(init.main$stindirect))] <- 0
+init.main$codirect[(is.na(init.main$codirect))] <- 0
+init.main$coindirect[(is.na(init.main$coindirect))] <- 0
+
+
+## Original authors had a coding error. NM, MD, and KY do not have initiative. Fixed below. ##
+init.main$presence00.fix <- init.main$presence00
+
+init.main$presence00.fix[init.main$state=="KY"] <- 0
+init.main$presence00.fix[init.main$state=="MD"] <- 0
+init.main$presence00.fix[init.main$state=="NM"] <- 0
+
+summary(init.main)
+
+# Var: standardized govt liberalism and public opinion liberalism term
+init.main$standgov <- init.main$govideol/sd(init.main$govideol)
+init.main$standop <- init.main$ideol9599/sd(init.main$ideol9599)
+
+# Var: absolute different between the standardized liberalism scores of public vs govt
+init.main$difflib <- abs(init.main$standop-init.main$standgov)
+
+# Var: log of number of yrs since intiative adopted
+init.main$logyrs <- rep(NA, length(init.main$state))
+for (i in 1:length(init.main$logyrs)){
+	init.main$logyrs[i][(init.main$inityrs[i]>0)] <- log(init.main$inityrs[i])
+}
+init.main$logyrs[(is.na(init.main$logyrs))] <- 0
+
+# Var: unstandardized version of differernce b/w public and govt liberalism. Not used. Measures are not commensurable, so unstandardized variable is meaningless
+init.main$difflibns <- abs(init.main$ideol9599 - init.main$govideol)
+
+# Var: Dummy - 1 if state has both constitutional and statutory direct intiatives. Captures states with stronger democratic institutions
+init.main$direct <- rep(NA, length(init.main$state))
+init.main$direct[(init.main$stdirect==1)] <- 1
+init.main$direct <- ifelse (init.main$codirect==init.main$direct,  1, 0)
+init.main$direct[(is.na(init.main$direct))] <- 0
+init.main[,c("stdirect", "codirect", "direct")]
+
+
+# Var: Dummy - 1 if state has any form of indirect intiative
+init.main$anyindirect <- rep(NA, length(init.main$state))
+init.main$anyindirect[(init.main$stindirect==1)] <- 1
+init.main$anyindirect[(init.main$coindirect==1)] <- 1
+init.main$anyindirect[(is.na(init.main$anyindirect))] <- 0
+init.main[,c("stindirect", "coindirect", "anyindirect")]
+
+
+# Var: Dummy - 1 if state has any form of direct intiative
+init.main$anydirect <- rep(NA, length(init.main$state))
+init.main$anydirect[(init.main$stdirect==1)] <- 1
+init.main$anydirect[(init.main$codirect==1)] <- 1
+init.main$anydirect[(is.na(init.main$anydirect))] <- 0
+init.main[,c("stdirect", "codirect", "anydirect")]
+
+
+# Var: Dummy - 1 if state has any form of indirect intiative but no form of direct
+init.main$indnodir <- rep(NA, length(init.main$state))
+init.main$indnodir[(init.main$anyindirect==1)] <- 1
+init.main$indnodir[(init.main$anydirect==init.main$anyindirect)] <- 0
+init.main$indnodir[(is.na(init.main$indnodir))] <- 0
+init.main[,c("anydirect", "anyindirect", "indnodir")] 
+
+
+# Save file
+save(init.main, file="filaepathname.../InitiativeDataset.RData")
