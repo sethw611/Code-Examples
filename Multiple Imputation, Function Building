@@ -92,183 +92,31 @@ imp.init <- mids2mi(imp.init)
 # save file
 save(imp.init, file = "filepathname.../MIData.RData")
 
-# Replication of Table 2, model 3 in original paper after correction for incorrect data input (see data preparation example) and MI
-mod.imp.3 <- zelig(policy2000 ~ ideol9599 + govideol + use00 + use00:ideol9599, data = imp.init, model = "ls")
-summary(mod.imp.3)
 
-pr2 <- 5
+## Some Functions ##
 
-nr2 <- 50
-
-
-
-init.res.2 <- rep(NA, nr3)
-for (i in 1:m) {
-	if (i==1) {
-		init.res.2 <- summary(mod.imp.3[[i]])$residuals
-	} else {
-		init.res.2 <- cbind(init.res.2, summary(mod.imp.3[[i]])$residuals)
-	}
-}
-
-
-initres.2 <- rep(NA, nr3)
-for(i in 1:m){
-	if (i==1){
-		initres.2 <- init.res.2[,i] 
-	} else {
-		initres.2 <- initres.2 + init.res.2[,i]
-	}
-}
-init.res.pool.2 <- initres.2/m
-
-init.coef.2 <- as.vector(summary(mod.imp.3)$coef[,1])
-
-
-init.inter.2 <- rep(1, nr3)
-
-init.var.2 <- vector("list", m)
-for(i in 1:m){
-	init.var.2[[i]] <- cbind(init.inter.2, imp.init[[i]]$ideol9599, imp.init[[i]]$govideol, imp.init[[i]]$pctapprove, imp.init[[i]]$direct, imp.init[[i]]$avgnum, (imp.init[[i]]$ideol9599*imp.init[[i]]$pctapprove))	
-}
-
-init.var.mat.2 <- matrix(NA, nrow = nr3, ncol = ncol(init.var.2[[1]]))
-for(i in 1:m){
-	if (i==1) {
-		init.var.mat.2 <- init.var.2[[i]]
-		} else {
-		for(j in 1:ncol(init.var.2[[1]])) {
-		init.var.mat.2[,j] <- init.var.mat.2[,j] + init.var.2[[i]][,j]
-		}
-	}
-}
-init.var.mat.2 <- init.var.mat.2/m
-
-
-init.var.cor.2 <- vector("list", m)
-for(i in 1:m){
-	init.var.cor.2[[i]] <- init.var.2[[i]][,2:7]
-}
-
-init.cor.2 <- vector("list", m)
-for(i in 1:m){
-	init.cor.2[[i]] <- cor(init.var.cor.2[[i]])
-}
-
-for(i in 1:m){
-	if(i==1){
-		init.cor.pool.2 <- init.cor.2[[i]]	
-	} else {
-		init.cor.pool.2 <- init.cor.pool.2 + init.cor.2[[i]]
-	}
-}
-init.cor.pool.2 <- init.cor.pool.2/m
-
-
-init.pred.2 <- matrix(NA, nrow = nr3, ncol = m)
-for(i in 1:m){
-	init.pred.2[,i] <- init.var.2[[i]] %*% init.coef.2
-}
-
-init.predicted.2 <- rep(NA, nr3)
-for(i in 1:m){
-	if (i==1){
-		init.predicted.2 <- init.pred.2[,i]
-	} else {
-		init.predicted.2 <- init.predicted.2 + init.pred.2[,i]
-	}
-}
-init.pred.pool.2 <- init.predicted.2/m
-
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlot.pdf")
-
-plot(init.pred.pool.2, init.res.pool.2, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
-abline(h=0, col="red")
-axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
-axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
-box(col = "grey40")
-
-dev.off()
-
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHist.pdf")
-
-hist(init.res.pool.2, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
-axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
-axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
-
-dev.off()
-
-mean(init.res.pool.2) # Check unbiasedness assumption E(error) = 0. ## OK
-
-init.RSS.pool.2 <- crossprod(init.res.pool.2)
-
-
-init.policy2000.pool.2 <- rep(NA, nr3)
-for (i in 1:m){
-	if (i==1){
-		init.policy2000.pool.2 <- imp.init[[i]]$policy2000
-	} else {
-		init.policy2000.pool.2 <- init.policy2000.pool.2 + imp.init[[i]]$policy2000
-	} 
-}
-init.policy2000.pool.2 <- init.policy2000.pool.2/m
-
-init.mean.policy2000.pool.2 <- rep(mean(init.policy2000.pool.2), nr3)
-
-init.TSS.pool.2 <- crossprod(init.policy2000.pool.2 - init.mean.policy2000.pool.2)
-
-init.r.squared.pool.2 <- 1 - (init.RSS.pool.2/init.TSS.pool.2)
-
-init.adj.r.squared.pool.2 <- init.r.squared.pool.2 - (1 - init.r.squared.pool.2)*pr3/(nr3 - pr3 - 1)
-
-
-for (i in 1:m) {
-	if (i==1) {
-		init.Fstat.pool.rep2 <- summary(mod.imp.3[[i]])$fstatistic[1]
-	} else {
-		init.Fstat.pool.rep2 <- init.Fstat.pool.rep2 + summary(mod.imp.3[[i]])$fstatistic[1]
-	}
-}
-init.Fstat.pool.rep2 <- init.Fstat.pool.rep2/m
-
-
-for (i in 1:m) {
-	if (i==1) {
-		init.AIC.pool.rep2 <- AIC(mod.imp.3[[i]])
-	} else {
-		init.AIC.pool.rep2 <- init.AIC.pool.rep2 + AIC(mod.imp.3[[i]])
-	}
-}
-init.AIC.pool.rep2 <- init.AIC.pool.rep2/m
-
-
-init.Dev.pool.rep2 <- init.AIC.pool.rep2 - 2*pr2
-
-
-init.BIC.pool.rep2 <- init.Dev.pool.rep2 + (pr2*log(nr2))
-
-
+# because there is no R package currently available (that I am aware of) for calculating test statistics such as F-statisitcs or deviance scores using multiply imputed data sets, I have created a couple of my own functions to help out. Note: I have only turned some of the code into actual functions, where others have not yet made the transition.
 
 # function to calculate the number of parameters in a model (not including intercept)
-p <- function(x) {
-	length(as.vector(summary(x)$coef[,1])) - 1
+p <- function(model) {
+	length(as.vector(summary(model)$coef[,1])) - 1
 	}
 
 
 # function to calculate number of observations in the model
-n <- function(x) {
-			nrow(x[[1]])
+n <- function(midata) {
+		nrow(midata[[1]])
 			}
 
 
 # function to calculate the pooled residuals
-pool.resid <- function(x, n, m) {
+pool.resid <- function(midata, n, m) {
 	mi.res.mat <- rep(NA, n)
 	for (i in 1:m) {
 	if (i==1) {
-		mi.res.mat <- summary(x[[i]])$residuals
+		mi.res.mat <- summary(midata[[i]])$residuals
 	} else {
-		mi.res.mat <- cbind(mi.res.mat, summary(x[[i]])$residuals)
+		mi.res.mat <- cbind(mi.res.mat, summary(midata[[i]])$residuals)
 	}
 	}
 mi.res.sum <- rep(NA, n)
@@ -285,7 +133,9 @@ return(pooled.residuals)
 }
 
 
+## Re-run first model but with MI data ##
 
+# Note: most of this is simply doing normal model diagnostics, but having to manually pool the data to produce the diagnostics 
 
 init.mids.rep1 <- zelig(policy2000 ~ ideol9599 + govideol, data = imp.init, model = "ls")
 summary(init.mids.rep1)
@@ -422,7 +272,11 @@ init.Dev.pool.rep1 <- init.AIC.pool.rep1 - 2*pr1
 init.BIC.pool.rep1 <- init.Dev.pool.rep1 + (pr1*log(nr1))
 
 
-# Code repeats for the next two models
+
+## Code repeats for the next two models ##
+
+# Replicate second model using corrected and MI data
+
 init.mids.rep2 <- zelig(policy2000 ~ ideol9599 + govideol + presence00.fix  +  ideol9599:presence00.fix, data = imp.init, model = "ls")
 summary(init.mids.rep2)
 
@@ -432,26 +286,7 @@ pr2 <- p(init.mids.rep2)
 nr2 <- n(imp.init)
 
 
-
-init.res.rep2 <- rep(NA, nr2)
-for (i in 1:m) {
-	if (i==1) {
-		init.res.rep2 <- summary(init.mids.rep2[[i]])$residuals
-	} else {
-		init.res.rep2 <- cbind(init.res.rep2, summary(init.mids.rep2[[i]])$residuals)
-	}
-}
-
-
-initres.rep2 <- rep(NA, nr2)
-for(i in 1:m){
-	if (i==1){
-		initres.rep2 <- init.res.rep2[,i] 
-	} else {
-		initres.rep2 <- initres.rep2 + init.res.rep2[,i]
-	}
-}
-init.res.pool.rep2 <- initres.rep2/m
+init.res.pool.rep2 <- pool.resid(init.mids.rep2, nr2, m)
 
 init.coef.rep2 <- as.vector(summary(init.mids.rep2)$coef[,1])
 
@@ -547,6 +382,7 @@ init.Dev.pool.rep2 <- init.AIC.pool.rep2 - 2*pr2
 init.BIC.pool.rep2 <- init.Dev.pool.rep2 + (pr2*log(nr2))
 
 
+# New model #
 
 init.mids.2 <- zelig(policy2000 ~ ideol9599 + govideol + pctapprove + direct  + avgnum + ideol9599:pctapprove, data = imp.init, model = "ls")
 summary(init.mids.2)
@@ -556,26 +392,7 @@ pr3 <- p(init.mids.2)
 nr3 <- n(imp.init)
 
 
-
-init.res.2 <- rep(NA, nr3)
-for (i in 1:m) {
-	if (i==1) {
-		init.res.2 <- summary(init.mids.2[[i]])$residuals
-	} else {
-		init.res.2 <- cbind(init.res.2, summary(init.mids.2[[i]])$residuals)
-	}
-}
-
-
-initres.2 <- rep(NA, nr3)
-for(i in 1:m){
-	if (i==1){
-		initres.2 <- init.res.2[,i] 
-	} else {
-		initres.2 <- initres.2 + init.res.2[,i]
-	}
-}
-init.res.pool.2 <- initres.2/m
+init.res.pool.2 <- pool.resid(init.mids.2, nr3, m)
 
 init.coef.2 <- as.vector(summary(init.mids.2)$coef[,1])
 
@@ -758,6 +575,8 @@ init.BIC.pool.2 <- init.Dev.pool.2 + (pr3*log(nr3))
 #\label{tab:t2}
 #\end{table}
 
+
+## Some nice graphics ##
 
 pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/MainEffectsAvgNum.pdf")
 
