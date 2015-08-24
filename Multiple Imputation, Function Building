@@ -1,0 +1,801 @@
+library(texreg)
+library(stargazer)
+library(Zelig)
+library(RColorBrewer)
+library(mice)
+library(faraway)
+
+# Load data
+# This uses the data set created in the Data Preparation Example. This is a partial replication of and expansion on: Monogan, James, Virginia Gray and David Lowery. 2009. “Public Opinion, Organized Interests, and Policy Congruence in Initiative and Noninitiative US States.” State Politics & Policy Quarterly 9(3):304–324.
+
+load('filepathname.../InitiativeDataset.RData')
+
+
+## Replication of Table 2 (2000 only) ##
+
+mod.1 <- lm(policy2000 ~ ideol9599 + govideol, init.main)
+summary(mod.1)
+vif(mod.1)
+
+mod.2 <- lm(policy2000 ~ ideol9599 + govideol + presence00 + presence00:ideol9599, init.main)
+summary(mod.2)
+vif(mod.2)
+
+mod.3 <- lm(policy2000 ~ ideol9599 + govideol + use00 + use00:ideol9599, init.main)
+summary(mod.3)
+vif(mod.3)
+
+
+# Generate LaTeX tables. Note that changes were also made in LaTeX. The full code for the table is provided below.
+
+texreg(list(mod.1,mod.2,mod.3), stars=numeric(0), custom.coef.names=c("(Intercept)", "Opinion Liberalism","Government Liberalism", "Initiative Presence", "Presence x Opinion", "No. Initiatives (1992-2000)", "No. Initiatives x Opinion"), custom.note="Note: Standard Errors in Parentheses", digits = 3, bold = .05, caption = "Replication Model", caption.above = T)
+
+#\begin{table}
+#\scriptsize
+#\begin{center}
+#\caption{Replication Model}
+#\begin{tabular}{l c c c }
+#\hline
+ #                        Dep. Variable: Policy Liberalism   & Model 1 & Model 2 & Model 3 \\
+#\hline
+#(Intercept)                 & $-0.156$  & $-0.185$  & $-0.239$  \\[-.1cm]
+#                          & $(0.295)$ & $(0.449)$ & $(0.302)$ \\
+#Opinion Liberalism          & {\bfseries 0.273}   & {\bfseries 0.269}   & {\bfseries 0.278}   \\[-.1cm]
+#                            & $(0.036)$ & $(0.047)$ & $(0.040)$ \\
+#Government Liberalism       & $-0.001$  & $-0.001$  & $-0.002$  \\[-.1cm]
+#                            & $(0.015)$ & $(0.015)$ & $(0.015)$ \\
+#Initiative Presence         &           & $0.061$   &           \\[-.1cm]
+#                            &           & $(0.613)$ &           \\
+#Presence x Opinion          &           & $0.009$   &           \\[-.1cm]
+#                            &           & $(0.069)$ &           \\
+#No. Initiatives (1992-2000) &           &           & $0.016$   \\[-.1cm]
+#                            &           &           & $(0.032)$ \\
+#No. Initiatives x Opinion   &           &           & $0.004$   \\[-.1cm]
+#                            &           &           & $(0.004)$ \\
+#\hline
+#R$^2$                       & 0.604     & 0.604     & 0.638     \\[-.1cm]
+#Adj. R$^2$                  & 0.586     & 0.567     & 0.604     \\[-.1cm]
+#Num. obs.                   & 48        & 48        & 48        \\
+#\hline
+#\multicolumn{4}{l}{\scriptsize{Note: Standard Errors in Parentheses}}
+#\end{tabular}
+#\end{center}
+#\end{table}
+
+
+## Multiple Imputation ##
+
+# Dataset provided by the authors has some missing values. Will use non-parametric multiple imputation procedure to predict the missing values. This is done by generating several datasets in which the missing values are imputed on each while introducing minor variations in each new dataset to produce a reasonable range of possible values based upon the covariates found in tht edataset. You then run you model on each of the datasets individually. The coefficient estimates and other parameters are then combined into one set of estimates. 
+
+# set seed for replication purposes
+set.seed(704)
+
+# set number of imputed datasets to generate
+m <- 10
+
+# Generate MI datasets
+imp.init <- mice(init.main.mi, m)
+
+
+
+# create object to hold the data for use in zelig package
+mids2mi <- function(object){
+         nmids <- object$m
+         mi.data <- list()
+         for(i in 1:nmids){
+                mi.data[[i]] <- complete(object, action=i)}
+         class(mi.data) <- c("mi", "list")
+         return(mi.data)  
+         }
+imp.init <- mids2mi(imp.init)    
+   
+# save file
+save(imp.init, file = "filepathname.../MIData.RData")
+
+# Replication of Table 2, model 3 in original paper after correction for incorrect data input (see data preparation example) and MI
+mod.imp.3 <- zelig(policy2000 ~ ideol9599 + govideol + use00 + use00:ideol9599, data = imp.init, model = "ls")
+summary(mod.imp.3)
+
+pr2 <- 5
+
+nr2 <- 50
+
+
+
+init.res.2 <- rep(NA, nr3)
+for (i in 1:m) {
+	if (i==1) {
+		init.res.2 <- summary(mod.imp.3[[i]])$residuals
+	} else {
+		init.res.2 <- cbind(init.res.2, summary(mod.imp.3[[i]])$residuals)
+	}
+}
+
+
+initres.2 <- rep(NA, nr3)
+for(i in 1:m){
+	if (i==1){
+		initres.2 <- init.res.2[,i] 
+	} else {
+		initres.2 <- initres.2 + init.res.2[,i]
+	}
+}
+init.res.pool.2 <- initres.2/m
+
+init.coef.2 <- as.vector(summary(mod.imp.3)$coef[,1])
+
+
+init.inter.2 <- rep(1, nr3)
+
+init.var.2 <- vector("list", m)
+for(i in 1:m){
+	init.var.2[[i]] <- cbind(init.inter.2, imp.init[[i]]$ideol9599, imp.init[[i]]$govideol, imp.init[[i]]$pctapprove, imp.init[[i]]$direct, imp.init[[i]]$avgnum, (imp.init[[i]]$ideol9599*imp.init[[i]]$pctapprove))	
+}
+
+init.var.mat.2 <- matrix(NA, nrow = nr3, ncol = ncol(init.var.2[[1]]))
+for(i in 1:m){
+	if (i==1) {
+		init.var.mat.2 <- init.var.2[[i]]
+		} else {
+		for(j in 1:ncol(init.var.2[[1]])) {
+		init.var.mat.2[,j] <- init.var.mat.2[,j] + init.var.2[[i]][,j]
+		}
+	}
+}
+init.var.mat.2 <- init.var.mat.2/m
+
+
+init.var.cor.2 <- vector("list", m)
+for(i in 1:m){
+	init.var.cor.2[[i]] <- init.var.2[[i]][,2:7]
+}
+
+init.cor.2 <- vector("list", m)
+for(i in 1:m){
+	init.cor.2[[i]] <- cor(init.var.cor.2[[i]])
+}
+
+for(i in 1:m){
+	if(i==1){
+		init.cor.pool.2 <- init.cor.2[[i]]	
+	} else {
+		init.cor.pool.2 <- init.cor.pool.2 + init.cor.2[[i]]
+	}
+}
+init.cor.pool.2 <- init.cor.pool.2/m
+
+
+init.pred.2 <- matrix(NA, nrow = nr3, ncol = m)
+for(i in 1:m){
+	init.pred.2[,i] <- init.var.2[[i]] %*% init.coef.2
+}
+
+init.predicted.2 <- rep(NA, nr3)
+for(i in 1:m){
+	if (i==1){
+		init.predicted.2 <- init.pred.2[,i]
+	} else {
+		init.predicted.2 <- init.predicted.2 + init.pred.2[,i]
+	}
+}
+init.pred.pool.2 <- init.predicted.2/m
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlot.pdf")
+
+plot(init.pred.pool.2, init.res.pool.2, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
+abline(h=0, col="red")
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+box(col = "grey40")
+
+dev.off()
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHist.pdf")
+
+hist(init.res.pool.2, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+
+dev.off()
+
+mean(init.res.pool.2) # Check unbiasedness assumption E(error) = 0. ## OK
+
+init.RSS.pool.2 <- crossprod(init.res.pool.2)
+
+
+init.policy2000.pool.2 <- rep(NA, nr3)
+for (i in 1:m){
+	if (i==1){
+		init.policy2000.pool.2 <- imp.init[[i]]$policy2000
+	} else {
+		init.policy2000.pool.2 <- init.policy2000.pool.2 + imp.init[[i]]$policy2000
+	} 
+}
+init.policy2000.pool.2 <- init.policy2000.pool.2/m
+
+init.mean.policy2000.pool.2 <- rep(mean(init.policy2000.pool.2), nr3)
+
+init.TSS.pool.2 <- crossprod(init.policy2000.pool.2 - init.mean.policy2000.pool.2)
+
+init.r.squared.pool.2 <- 1 - (init.RSS.pool.2/init.TSS.pool.2)
+
+init.adj.r.squared.pool.2 <- init.r.squared.pool.2 - (1 - init.r.squared.pool.2)*pr3/(nr3 - pr3 - 1)
+
+
+for (i in 1:m) {
+	if (i==1) {
+		init.Fstat.pool.rep2 <- summary(mod.imp.3[[i]])$fstatistic[1]
+	} else {
+		init.Fstat.pool.rep2 <- init.Fstat.pool.rep2 + summary(mod.imp.3[[i]])$fstatistic[1]
+	}
+}
+init.Fstat.pool.rep2 <- init.Fstat.pool.rep2/m
+
+
+for (i in 1:m) {
+	if (i==1) {
+		init.AIC.pool.rep2 <- AIC(mod.imp.3[[i]])
+	} else {
+		init.AIC.pool.rep2 <- init.AIC.pool.rep2 + AIC(mod.imp.3[[i]])
+	}
+}
+init.AIC.pool.rep2 <- init.AIC.pool.rep2/m
+
+
+init.Dev.pool.rep2 <- init.AIC.pool.rep2 - 2*pr2
+
+
+init.BIC.pool.rep2 <- init.Dev.pool.rep2 + (pr2*log(nr2))
+
+
+
+# function to calculate the number of parameters in a model (not including intercept)
+p <- function(x) {
+	length(as.vector(summary(x)$coef[,1])) - 1
+	}
+
+
+# function to calculate number of observations in the model
+n <- function(x) {
+			nrow(x[[1]])
+			}
+
+
+# function to calculate the pooled residuals
+pool.resid <- function(x, n, m) {
+	mi.res.mat <- rep(NA, n)
+	for (i in 1:m) {
+	if (i==1) {
+		mi.res.mat <- summary(x[[i]])$residuals
+	} else {
+		mi.res.mat <- cbind(mi.res.mat, summary(x[[i]])$residuals)
+	}
+	}
+mi.res.sum <- rep(NA, n)
+for(i in 1:m){
+	if (i==1){
+		mi.res.sum <- mi.res.mat[,i] 
+	} else {
+		mi.res.sum <- mi.res.sum + mi.res.mat[,i]
+	}
+}
+pooled.residuals <- as.vector(rep(NA, n))
+pooled.residuals <- mi.res.sum/m	
+return(pooled.residuals)
+}
+
+
+
+
+init.mids.rep1 <- zelig(policy2000 ~ ideol9599 + govideol, data = imp.init, model = "ls")
+summary(init.mids.rep1)
+
+# number of parameters
+pr1 <- p(init.mids.rep1)
+
+# number of observations
+nr1 <- n(imp.init)
+
+
+# calculate pooled residuals
+init.res.pool.rep1 <- pool.resid(init.mids.rep1, nr1, m)
+
+
+# Vector of Coefficient Est.
+init.coef.rep1 <- as.vector(summary(init.mids.rep1)$coef[,1])
+
+
+# Intercept vector
+init.inter.rep1 <- rep(1, nr1)
+	
+
+# Matrix of Predictor Vars
+init.var.rep1 <- vector("list", m)
+for(i in 1:m){
+	init.var.rep1[[i]] <- cbind(init.inter.rep1, imp.init[[i]]$ideol9599, imp.init[[i]]$govideol)	
+}
+
+# Matrix of predicted y values
+init.pred.rep1 <- matrix(NA, nrow = nr1, ncol = m)
+for(i in 1:m){
+	init.pred.rep1[,i] <- init.var.rep1[[i]] %*% init.coef.rep1
+}
+
+# Pooled predicted y values
+init.predicted.rep1 <- rep(NA, nr1)
+for(i in 1:m){
+	if (i==1){
+		init.predicted.rep1 <- init.pred.rep1[,i]
+	} else {
+		init.predicted.rep1 <- init.predicted.rep1 + init.pred.rep1[,i]
+	}
+}
+init.pred.pool.rep1 <- init.predicted.rep1/m
+
+
+# Check Homoskedasticity
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlotRep1.pdf")
+
+plot(init.pred.pool.rep1, init.res.pool.rep1, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
+abline(h=0, col="red")
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+box(col = "grey40")
+
+dev.off()
+
+
+# Check Normality
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHistRep1.pdf")
+
+hist(init.res.pool.rep1, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+
+dev.off()
+
+
+
+# Check unbiasedness assumption E(error) = 0. ## 
+mean(init.res.pool.rep1)
+
+
+# Sum of squared errors
+init.RSS.pool.rep1 <- crossprod(init.res.pool.rep1)
+
+
+# Pooled values of the response variable
+init.policy2000.pool.rep1 <- rep(NA, nr1)
+for (i in 1:m){
+	if (i==1){
+		init.policy2000.pool.rep1 <- imp.init[[i]]$policy2000
+	} else {
+		init.policy2000.pool.rep1 <- init.policy2000.pool.rep1 + imp.init[[i]]$policy2000
+	} 
+}
+init.policy2000.pool.rep1 <- init.policy2000.pool.rep1/m
+
+
+# Mean of Y
+init.mean.policy2000.pool.rep1 <- rep(mean(init.policy2000.pool.rep1), nr1)
+
+
+# Total Sum of Squares
+init.TSS.pool.rep1 <- crossprod(init.policy2000.pool.rep1 - init.mean.policy2000.pool.rep1)
+
+
+# R^2
+init.r.squared.pool.rep1 <- 1 - (init.RSS.pool.rep1/init.TSS.pool.rep1)
+
+
+#Adj. R^2
+init.adj.r.squared.pool.rep1 <- init.r.squared.pool.rep1 - (1 - init.r.squared.pool.rep1)*(pr1)/(nr1 - pr1 - 1)
+
+
+# Pooled F-Statistics
+for (i in 1:m) {
+	if (i==1) {
+		init.Fstat.pool.rep1 <- summary(init.mids.rep1[[i]])$fstatistic[1]
+	} else {
+		init.Fstat.pool.rep1 <- init.Fstat.pool.rep1 + summary(init.mids.rep1[[i]])$fstatistic[1]
+	}
+}
+init.Fstat.pool.rep1 <- init.Fstat.pool.rep1/m
+
+
+# Pooled AIC
+for (i in 1:m) {
+	if (i==1) {
+		init.AIC.pool.rep1 <- AIC(init.mids.rep1[[i]])
+	} else {
+		init.AIC.pool.rep1 <- init.AIC.pool.rep1 + AIC(init.mids.rep1[[i]])
+	}
+}
+init.AIC.pool.rep1 <- init.AIC.pool.rep1/m
+
+
+# Pooled Deviance
+init.Dev.pool.rep1 <- init.AIC.pool.rep1 - 2*pr1
+
+
+# Pooled BIC
+init.BIC.pool.rep1 <- init.Dev.pool.rep1 + (pr1*log(nr1))
+
+
+# Code repeats for the next two models
+init.mids.rep2 <- zelig(policy2000 ~ ideol9599 + govideol + presence00.fix  +  ideol9599:presence00.fix, data = imp.init, model = "ls")
+summary(init.mids.rep2)
+
+
+pr2 <- p(init.mids.rep2)
+
+nr2 <- n(imp.init)
+
+
+
+init.res.rep2 <- rep(NA, nr2)
+for (i in 1:m) {
+	if (i==1) {
+		init.res.rep2 <- summary(init.mids.rep2[[i]])$residuals
+	} else {
+		init.res.rep2 <- cbind(init.res.rep2, summary(init.mids.rep2[[i]])$residuals)
+	}
+}
+
+
+initres.rep2 <- rep(NA, nr2)
+for(i in 1:m){
+	if (i==1){
+		initres.rep2 <- init.res.rep2[,i] 
+	} else {
+		initres.rep2 <- initres.rep2 + init.res.rep2[,i]
+	}
+}
+init.res.pool.rep2 <- initres.rep2/m
+
+init.coef.rep2 <- as.vector(summary(init.mids.rep2)$coef[,1])
+
+
+init.inter.rep2 <- rep(1, nr2)
+
+init.var.rep2 <- vector("list", m)
+for(i in 1:m){
+	init.var.rep2[[i]] <- cbind(init.inter.rep2, imp.init[[i]]$ideol9599, imp.init[[i]]$govideol, imp.init[[i]]$presence00.fix, (imp.init[[i]]$ideol9599*imp.init[[i]]$presence00.fix))	
+}
+
+
+init.pred.rep2 <- matrix(NA, nrow = nr2, ncol = m)
+for(i in 1:m){
+	init.pred.rep2[,i] <- init.var.rep2[[i]] %*% init.coef.rep2
+}
+
+init.predicted.rep2 <- rep(NA, nr2)
+for(i in 1:m){
+	if (i==1){
+		init.predicted.rep2 <- init.pred.rep2[,i]
+	} else {
+		init.predicted.rep2 <- init.predicted.rep2 + init.pred.rep2[,i]
+	}
+}
+init.pred.pool.rep2 <- init.predicted.rep2/m
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlotRep2.pdf")
+
+plot(init.pred.pool.rep2, init.res.pool.rep2, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
+abline(h=0, col="red")
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+box(col = "grey40")
+
+dev.off()
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHistRep2.pdf")
+
+hist(init.res.pool.rep2, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+
+dev.off()
+
+mean(init.res.pool.rep2) # Check unbiasedness assumption E(error) = 0. ## OK
+
+init.RSS.pool.rep2 <- crossprod(init.res.pool.rep2)
+
+
+init.policy2000.pool.rep2 <- rep(NA, nr2)
+for (i in 1:m){
+	if (i==1){
+		init.policy2000.pool.rep2 <- imp.init[[i]]$policy2000
+	} else {
+		init.policy2000.pool.rep2 <- init.policy2000.pool.rep2 + imp.init[[i]]$policy2000
+	} 
+}
+init.policy2000.pool.rep2 <- init.policy2000.pool.rep2/m
+
+init.mean.policy2000.pool.rep2 <- rep(mean(init.policy2000.pool.rep2), nr2)
+
+init.TSS.pool.rep2 <- crossprod(init.policy2000.pool.rep2 - init.mean.policy2000.pool.rep2)
+
+init.r.squared.pool.rep2 <- 1 - (init.RSS.pool.rep2/init.TSS.pool.rep2)
+
+init.adj.r.squared.pool.rep2 <- init.r.squared.pool.rep2 - (1 - init.r.squared.pool.rep2)*(pr2)/(nr2 - pr2 - 1)
+
+
+for (i in 1:m) {
+	if (i==1) {
+		init.Fstat.pool.rep2 <- summary(init.mids.rep2[[i]])$fstatistic[1]
+	} else {
+		init.Fstat.pool.rep2 <- init.Fstat.pool.rep2 + summary(init.mids.rep2[[i]])$fstatistic[1]
+	}
+}
+init.Fstat.pool.rep2 <- init.Fstat.pool.rep2/m
+
+
+for (i in 1:m) {
+	if (i==1) {
+		init.AIC.pool.rep2 <- AIC(init.mids.rep2[[i]])
+	} else {
+		init.AIC.pool.rep2 <- init.AIC.pool.rep2 + AIC(init.mids.rep2[[i]])
+	}
+}
+init.AIC.pool.rep2 <- init.AIC.pool.rep2/m
+
+
+init.Dev.pool.rep2 <- init.AIC.pool.rep2 - 2*pr2
+
+
+init.BIC.pool.rep2 <- init.Dev.pool.rep2 + (pr2*log(nr2))
+
+
+
+init.mids.2 <- zelig(policy2000 ~ ideol9599 + govideol + pctapprove + direct  + avgnum + ideol9599:pctapprove, data = imp.init, model = "ls")
+summary(init.mids.2)
+
+pr3 <- p(init.mids.2)
+
+nr3 <- n(imp.init)
+
+
+
+init.res.2 <- rep(NA, nr3)
+for (i in 1:m) {
+	if (i==1) {
+		init.res.2 <- summary(init.mids.2[[i]])$residuals
+	} else {
+		init.res.2 <- cbind(init.res.2, summary(init.mids.2[[i]])$residuals)
+	}
+}
+
+
+initres.2 <- rep(NA, nr3)
+for(i in 1:m){
+	if (i==1){
+		initres.2 <- init.res.2[,i] 
+	} else {
+		initres.2 <- initres.2 + init.res.2[,i]
+	}
+}
+init.res.pool.2 <- initres.2/m
+
+init.coef.2 <- as.vector(summary(init.mids.2)$coef[,1])
+
+
+init.inter.2 <- rep(1, nr3)
+
+init.var.2 <- vector("list", m)
+for(i in 1:m){
+	init.var.2[[i]] <- cbind(init.inter.2, imp.init[[i]]$ideol9599, imp.init[[i]]$govideol, imp.init[[i]]$pctapprove, imp.init[[i]]$direct, imp.init[[i]]$avgnum, (imp.init[[i]]$ideol9599*imp.init[[i]]$pctapprove))	
+}
+
+init.var.mat.2 <- matrix(NA, nrow = nr3, ncol = ncol(init.var.2[[1]]))
+for(i in 1:m){
+	if (i==1) {
+		init.var.mat.2 <- init.var.2[[i]]
+		} else {
+		for(j in 1:ncol(init.var.2[[1]])) {
+		init.var.mat.2[,j] <- init.var.mat.2[,j] + init.var.2[[i]][,j]
+		}
+	}
+}
+init.var.mat.2 <- init.var.mat.2/m
+
+init.var.cor.2 <- vector("list", m)
+for(i in 1:m){
+	init.var.cor.2[[i]] <- init.var.2[[i]][,2:7]
+}
+
+init.cor.2 <- vector("list", m)
+for(i in 1:m){
+	init.cor.2[[i]] <- cor(init.var.cor.2[[i]])
+}
+
+for(i in 1:m){
+	if(i==1){
+		init.cor.pool.2 <- init.cor.2[[i]]	
+	} else {
+		init.cor.pool.2 <- init.cor.pool.2 + init.cor.2[[i]]
+	}
+}
+init.cor.pool.2 <- init.cor.pool.2/m
+
+init.pred.2 <- matrix(NA, nrow = nr3, ncol = m)
+for(i in 1:m){
+	init.pred.2[,i] <- init.var.2[[i]] %*% init.coef.2
+}
+
+init.predicted.2 <- rep(NA, nr3)
+for(i in 1:m){
+	if (i==1){
+		init.predicted.2 <- init.pred.2[,i]
+	} else {
+		init.predicted.2 <- init.predicted.2 + init.pred.2[,i]
+	}
+}
+init.pred.pool.2 <- init.predicted.2/m
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlot.pdf")
+
+plot(init.pred.pool.2, init.res.pool.2, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
+abline(h=0, col="red")
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+box(col = "grey40")
+
+dev.off()
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHist.pdf")
+
+hist(init.res.pool.2, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
+axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
+
+dev.off()
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/Linearity.pdf")
+
+plot(imp.init[[1]]$ideol9599, imp.init[[1]]$policy2000, pch = 19, xlab = "Public Opinion Liberalism", ylab = "Policy Liberalism")
+
+dev.off()
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/QQplot.pdf")
+
+qqnorm(init.res.pool.2)
+qqline(init.res.pool.2, col = "red")
+
+dev.off()
+
+shapiro.test(init.res.pool.2)
+mean(init.res.pool.2) # Check unbiasedness assumption E(error) = 0. ## OK
+
+halfnorm(init.pred.pool.2, ylab = "Leverages")
+
+init.mids.2.cook <- lm(policy2000 ~ ideol9599 + govideol + pctapprove + direct  + avgnum + ideol9599:pctapprove, data = imp.init[[1]])
+
+cook <- cooks.distance(init.mids.2.cook)
+halfnorm(cook, 3)
+
+
+init.RSS.pool.2 <- crossprod(init.res.pool.2)
+
+
+init.policy2000.pool.2 <- rep(NA, nr3)
+for (i in 1:m){
+	if (i==1){
+		init.policy2000.pool.2 <- imp.init[[i]]$policy2000
+	} else {
+		init.policy2000.pool.2 <- init.policy2000.pool.2 + imp.init[[i]]$policy2000
+	} 
+}
+init.policy2000.pool.2 <- init.policy2000.pool.2/m
+
+init.mean.policy2000.pool.2 <- rep(mean(init.policy2000.pool.2), nr3)
+
+init.TSS.pool.2 <- crossprod(init.policy2000.pool.2 - init.mean.policy2000.pool.2)
+
+init.r.squared.pool.2 <- 1 - (init.RSS.pool.2/init.TSS.pool.2)
+
+init.adj.r.squared.pool.2 <- init.r.squared.pool.2 - (1 - init.r.squared.pool.2)*pr3/(nr3 - pr3 - 1)
+
+
+for (i in 1:m) {
+	if (i==1) {
+		init.Fstat.pool.2 <- summary(init.mids.2[[i]])$fstatistic[1]
+	} else {
+		init.Fstat.pool.2 <- init.Fstat.pool.2 + summary(init.mids.2[[i]])$fstatistic[1]
+	}
+}
+init.Fstat.pool.2 <- init.Fstat.pool.2/m
+
+
+for (i in 1:m) {
+	if (i==1) {
+		init.AIC.pool.2 <- AIC(init.mids.2[[i]])
+	} else {
+		init.AIC.pool.2 <- init.AIC.pool.2 + AIC(init.mids.2[[i]])
+	}
+}
+init.AIC.pool.2 <- init.AIC.pool.2/m
+
+
+init.Dev.pool.2 <- init.AIC.pool.2 - 2*pr3
+
+
+init.BIC.pool.2 <- init.Dev.pool.2 + (pr3*log(nr3))
+
+
+#\begin{table}[!h]
+#\caption{Replication Models with M.I. and Data Corrections}
+#\begin{center}
+#\begin{tabular}{ l c c c }
+#\hline
+#                         Dep. Variable: Policy Liberalism   & Model 1 & Model 2 & Model 3 \\
+#\hline
+#(Intercept)                 & $-0.228$  & $-0.126$  & $-0.310$  \\[-.025cm]
+#                           & $(356)$ & $(0.472)$ & $(0.372)$ \\
+#Opinion Liberalism          & {\bfseries 0.272}   & {\bfseries 0.271}   & {\bfseries 0.279}   \\[-.025cm]
+#                            & $(0.039)$ & $(0.050)$ & $(0.043)$ \\
+#Government Liberalism       & $-0.004$  & $-0.005$  & $-0.005$  \\[-.025cm]
+#                            & $(0.017)$ & $(0.018)$ & $(0.017)$ \\
+#Initiative Presence         &           & $-0.212$   &           \\[-.1cm]
+#                            &           & $(0.700)$ &           \\
+#Presence x Opinion          &           & $0.001$   &           \\[-.1cm]
+ #                           &           & $(0.075)$ &           \\
+#No. Initiatives (1992-2000) &           &           & $0.014$   \\[-.1cm]
+ #                           &           &           & $(0.035)$ \\
+#No. Initiatives x Opinion   &           &           & $0.004$   \\[-.1cm]
+ #                           &           &           & $(0.005)$ \\
+#\hline
+#Pooled R$^2$                & 0.594     & 0.593     & 0.629    \\[-.1cm]
+#Pooled Adj. R$^2$           & 0.576     & 0.558     & 0.596     \\[-.1cm]
+#Pooled AIC                  & 226.198   &  229.98   &   226.24       \\[-.1cm]
+#Pooled BIC                  & 230.022   &  237.63   &   233.89        \\[-.1cm]
+#N                   & 50        & 50        & 50        \\
+#\hline
+#\multicolumn{4}{l}{Note: Standard Errors in Parentheses}~\\
+#\multicolumn{4}{l}{Bolded coefficients significant at the $\alpha <$ .05 level.}
+#\end{tabular}
+#\end{center}
+#\label{tab:t2}
+#\end{table}
+
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/MainEffectsAvgNum.pdf")
+
+init.main$col.p <- rep(NA, length(init.main$state))
+init.main$col.p[(init.main$presence00.fix==1)] <-  "blue3"
+init.main$col.p[(init.main$presence00.fix==0)] <- "darkgoldenrod"
+init.main$fill.p <- rep(NA, length(init.main$state))
+init.main$fill.p <- ifelse (init.main$direct==1, "mediumorchid2", "orange")
+init.main$fill.p[(init.main$presence00.fix==0)] <- "chartreuse3"
+plot(jitter(init.main$ideol9599), jitter(init.main$policy2000), col=init.main$col.p, cex=((init.main$avgnum + .5)*1.75), pch = 21, bg = init.main$fill.p, xlab = "Public Opinion Liberalism", ylab = "Policy Liberalism", main = "Main Effects Plot (Size = Avg. Ballot Initiatives/Yr)", xlim = c(-17,18), ylim = c(-5,8), col.lab = "grey40", col.main = "grey30", cex.axis = 0.8, cex.lab = 0.8, axes = F)
+box(col = "grey60")
+axis(1, xaxp = c(-18, 18, 6), cex.axis = 0.8, col = "grey60", col.axis = "grey60")
+axis(2, yaxp = c(-5, 7, 4), cex.axis = 0.8, col = "grey60", col.axis = "grey60")
+curve (cbind(1, x, 0, mean(init.main$pctapprove), 1, mean(init.main$avgnum), mean(init.main$pctapprove)*x) %*% init.coef.2, add=T, col="mediumorchid3")
+curve (cbind(1, x, 0, mean(init.main$pctapprove), 0, mean(init.main$avgnum), mean(init.main$pctapprove)*x) %*% init.coef.2, add=T, col="orange2")
+legend("bottomright", legend = c("Direct Initiative ", "Limited Direct/Indirect Initiative", "No Initiative"), fill = c("mediumorchid2", "orange", "chartreuse3"), border = c("blue3", "blue3", "darkgoldenrod"), text.col = "grey30", cex = .6, box.col= "grey60")
+
+dev.off()
+
+
+pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/MainEffectsPctApprove.pdf")
+
+init.main$col.p <- rep(NA, length(init.main$state))
+init.main$col.p[(init.main$presence00.fix==1)] <-  "blue3"
+init.main$col.p[(init.main$presence00.fix==0)] <- "darkgoldenrod"
+init.main$fill.p <- rep(NA, length(init.main$state))
+init.main$fill.p <- ifelse (init.main$direct==1, "mediumorchid2", "orange")
+init.main$fill.p[(init.main$presence00.fix==0)] <- "chartreuse3"
+plot(jitter(init.main$ideol9599), jitter(init.main$policy2000), col=init.main$col.p, cex=((init.main$pctapprove + .2)*5), pch = 21, bg = init.main$fill.p, xlab = "Public Opinion Liberalism", ylab = "Policy Liberalism", main = "Main Effects Plot (Size = Avg. % Passed)", xlim = c(-17,18), ylim = c(-5,8), col.lab = "grey40", col.main = "grey30", cex.axis = 0.8, cex.lab = 0.8, axes = F)
+box(col = "grey60")
+axis(1, xaxp = c(-18, 18, 6), cex.axis = 0.8, col = "grey60", col.axis = "grey60")
+axis(2, yaxp = c(-5, 7, 4), cex.axis = 0.8, col = "grey60", col.axis = "grey60")
+curve (cbind(1, x, 0, mean(init.main$pctapprove), 1, mean(init.main$avgnum), mean(init.main$pctapprove)*x) %*% init.coef.2, add=T, col="mediumorchid3")
+curve (cbind(1, x, 0, mean(init.main$pctapprove), 0, mean(init.main$avgnum), mean(init.main$pctapprove)*x) %*% init.coef.2, add=T, col="orange2")
+legend("bottomright", legend = c("Direct Initiative ", "Limited Direct/Indirect Initiative", "No Initiative"), fill = c("mediumorchid2", "orange", "chartreuse3"), border = c("blue3", "blue3", "darkgoldenrod"), text.col = "grey30", cex = .6, box.col= "grey60")
+
+dev.off()
+
+
+
+
