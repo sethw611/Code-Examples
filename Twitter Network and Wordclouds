@@ -1,0 +1,176 @@
+library(twitteR)
+library(stringr)
+library(wordcloud)
+library(igraph)
+
+# This was done during the last Ebola scare in 2014 - 2015. Am looking at tweets by the CDC, WHO, and Doctors Without Borders. Who follows them, their tweets, their hashtags, and who retweets them. 
+
+
+# Keys to use twitter data provided by Twitter. Will have to get your own. 
+api_key <- ’xxxxxxxxxxxxxxxxxxxxxxxx’
+api_secret <- ’xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx’
+access_token <- ’xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx’
+access_token_secret <- ’xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx’
+setup_twitter_oauth(api_key, api_secret, access_token, access_token_secret)
+
+
+WHO <- getUser(’WHO’)
+MSF <- getUser(’MSF’)
+CDC <- getUser(’CDCGov’)
+
+
+WHO_followers <- WHO$getFollowers(100)
+MSF_followers <- MSF$getFollowers(100)
+CDC_followers <- CDC$getFollowers(100)
+
+
+WHO_followers_sn <- sapply(WHO_followers, screenName)
+MSF_followers_sn <- sapply(CDC_followers, screenName)
+CDC_followers_sn <- sapply(CDC_followers, screenName)
+
+
+WHO_followers_net <- cbind(rep(’WHO’, length(WHO_followers_sn)), WHO_followers_sn)
+MSF_followers_net <- cbind(rep(’MSF’, length(MSF_followers_sn)), MSF_followers_sn)
+CDC_followers_net <- cbind(rep(’CDC’, length(CDC_followers_sn)), CDC_followers_sn)
+
+
+all_followers_net <- rbind(WHO_followers_net, MSF_followers_net, CDC_followers_net)
+
+
+WHO_tweets <- userTimeline(’WHO’, n=500)
+MSF_tweets <- userTimeline(’MSF’, n=500)
+CDC_tweets <- userTimeline(’CDCGov’, n=500)
+
+
+WHO_tweets_df <- twListToDF(WHO_tweets)
+MSF_tweets_df <- twListToDF(MSF_tweets)
+CDC_tweets_df <- twListToDF(CDC_tweets)
+
+
+WHO_hashtags <- str_extract_all(WHO_tweets_df$text, "#\\w+")
+MSF_hashtags <- str_extract_all(MSF_tweets_df$text, "#\\w+")
+CDC_hashtags <- str_extract_all(CDC_tweets_df$text, "#\\w+")
+
+
+WHO_hashtags_un <- unlist(WHO_hashtags)
+MSF_hashtags_un <- unlist(MSF_hashtags)
+CDC_hashtags_un <- unlist(CDC_hashtags)
+
+
+WHO_hashtags_un_freq <- table(WHO_hashtags_un)
+MSF_hashtags_un_freq <- table(MSF_hashtags_un)
+CDC_hashtags_un_freq <- table(CDC_hashtags_un)
+
+
+all_hashtags <- c(WHO_hashtags_un_freq, MSF_hashtags_un_freq, CDC_hashtags_un_freq)
+
+
+wordcloud(names(WHO_hashtags_un_freq), WHO_hashtags_un_freq, random.order=FALSE, colors="green")
+title("Hashtags in @WHO Tweets", cex.main=1.5, col.main="gray50")
+
+
+wordcloud(names(MSF_hashtags_un_freq), MSF_hashtags_un_freq, random.order=FALSE, colors="red")
+title("Hashtags in @MSF Tweets", cex.main=1.5, col.main="gray50")
+
+
+wordcloud(names(CDC_hashtags_un_freq), CDC_hashtags_un_freq, random.order=FALSE, colors="blue")
+title("Hashtags in @CDC Tweets", cex.main=1.5, col.main="gray50")
+
+
+cols = c(rep("purple", length(WHO_hashtags_un_freq)), rep("red", length(MSF_hashtags_un_freq)), rep("blue", length(CDC_hashtags_un_freq)))
+wordcloud(names(all_hashtags), all_hashtags, random.order=FALSE, min.freq=1, colors=cols, ordered.colors=TRUE)
+mtext(c("@WHO", "@MSF", "@CDC"), side=3, line=2, at=c(0.1, 0.5, 0.9), col=c("purple", "red", "blue"), family="serif", font=2, cex=1.5)
+
+
+WHO_hashtags_net <- cbind(rep("WHO", length(WHO_hashtags_un)), WHO_hashtags_un)
+MSF_hashtags_net <- cbind(rep("MSF", length(MSF_hashtags_un)), MSF_hashtags_un)
+CDC_hashtags_net <- cbind(rep("CDC", length(CDC_hashtags_un)), CDC_hashtags_un)
+
+
+All_hashtags_net <- rbind(WHO_hashtags_net, MSF_hashtags_net, CDC_hashtags_net)
+
+
+All_hashtags_graph <- graph.edgelist(All_hashtags_net)
+
+
+V(All_hashtags_graph)$type <- FALSE
+V(All_hashtags_graph)$type[V(All_hashtags_graph)$name==’WHO’] <- TRUE 
+V(All_hashtags_graph)$type[V(All_hashtags_graph)$name==’MSF’] <- TRUE
+V(All_hashtags_graph)$type[V(All_hashtags_graph)$name==’CDC’] <- TRUE
+
+
+proj_hashtags_graph <- bipartite.projection(All_hashtags_graph, type=V(All_hashtags_graph)$type)
+
+
+#First, to determine how the vertices are ordered.
+
+
+str(proj_hashtags_graph[[2]])
+
+
+#The following command tells me the number of shared hashtags listed according to the ordering established above.
+
+
+E(proj_hashtags_graph[[2]])$weight
+
+
+#From this, we can see that the WHO and the CDC have the largest number of hashtags in common at 12,326 as illustrated by the number in the middle column. A graph was plotted showing the relationships between these organizations as represented by their use of similar hashtags. The code can be found below as well:
+
+
+plot(All_hashtags_graph)
+
+
+dev.off()
+
+
+Ebola_tweets <- searchTwitter(’#Ebola’, n=500, lang=’en’)
+
+
+Ebola_txt = sapply(Ebola_tweets, function(x) x$getText())
+
+
+grep("(RT|via)((?:\\b\\W*@\\w+)+)", Ebola_txt, ignore.case=TRUE, value=TRUE)
+
+
+rt_patterns <- grep("(RT|via)((?:\\b\\W*@\\w+)+)", Ebola_txt, ignore.case=TRUE)
+
+
+Ebola_txt[rt_patterns]
+
+
+who_retweet = as.list(1:length(rt_patterns))
+
+
+who_post = as.list(1:length(rt_patterns))
+
+
+for (i in 1:length(rt_patterns)){
+		twit <- Ebola_tweets[[rt_patterns[i]]] 
+		poster <- str_extract_all(twit$getText(),"(RT|via)((?:\\b\\W*@\\w+)+)") 
+		poster <- gsub(":", "", unlist(poster)) 
+		who_post[[i]] <- gsub("(RT @|via @)", "", poster, ignore.case=TRUE) 
+		who_retweet[[i]] <- rep(twit$getScreenName(), length(poster))
+						}
+
+
+who_post <- unlist(who_post)
+
+
+who_retweet <- unlist(who_retweet)
+
+
+Ebola_net <- cbind(who_post, who_retweet)
+
+
+Ebola_rt_graph <- graph.edgelist(Ebola_net)
+
+
+ver_labs <- get.vertex.attribute(Ebola_rt_graph, "name", index=V(Ebola_rt_graph))
+
+
+
+par(bg="gray15", mar=c(1,1,1,1)) 
+
+plot(Ebola_rt_graph, vertex.color="gray25", vertex.size=10, vertex.label=ver_labs, vertex.label.family="sans", vertex.shape="none", vertex.label.color=hsv(h=0, s=0, v=.95, alpha=0.5), vertex.label.cex=0.5, edge.arrow.size=0.8, edge.arrow.width=0.5, edge.width=2, edge.color=hsv(h=.95, s=1, v=.7, alpha=0.5))
+
+title("\nTweets with ’#Ebola’: Who retweets whom", cex.main=1, col.main="gray95")
