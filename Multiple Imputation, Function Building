@@ -184,7 +184,7 @@ init.pred.pool.rep1 <- init.predicted.rep1/m
 
 
 # Check Homoskedasticity
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlotRep1.pdf")
+pdf("filepathname.../ErrorVariancePlotRep1.pdf")
 
 plot(init.pred.pool.rep1, init.res.pool.rep1, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
 abline(h=0, col="red")
@@ -196,7 +196,7 @@ dev.off()
 
 
 # Check Normality
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHistRep1.pdf")
+pdf("filepathname.../ResidualsHistRep1.pdf")
 
 hist(init.res.pool.rep1, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
 axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
@@ -314,7 +314,7 @@ for(i in 1:m){
 }
 init.pred.pool.rep2 <- init.predicted.rep2/m
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlotRep2.pdf")
+pdf("filepathname.../ErrorVariancePlotRep2.pdf")
 
 plot(init.pred.pool.rep2, init.res.pool.rep2, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
 abline(h=0, col="red")
@@ -324,7 +324,7 @@ box(col = "grey40")
 
 dev.off()
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHistRep2.pdf")
+pdf("filepathname.../ResidualsHistRep2.pdf")
 
 hist(init.res.pool.rep2, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
 axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
@@ -450,7 +450,7 @@ for(i in 1:m){
 }
 init.pred.pool.2 <- init.predicted.2/m
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ErrorVariancePlot.pdf")
+pdf("filepathname.../ErrorVariancePlot.pdf")
 
 plot(init.pred.pool.2, init.res.pool.2, ylab = "Pooled Residuals", xlab = "Pooled Fitted", main = "Error Variance Plot", col.lab = "grey40", col.main = "grey30", cex = .7, cex.axis = 0.8, cex.lab = 0.8, axes = F, pch = 19)
 abline(h=0, col="red")
@@ -460,7 +460,7 @@ box(col = "grey40")
 
 dev.off()
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/ResidualsHist.pdf")
+pdf("filepathname.../ResidualsHist.pdf")
 
 hist(init.res.pool.2, col = "grey80", col.lab = "grey40", col.main = "grey30", xlab = "Pooled Residuals", main = "Pooled Residuals Frequency Distribution", cex.lab = 0.8, axes = F)
 axis(1, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
@@ -468,13 +468,13 @@ axis(2, cex.axis = 0.8, col = "grey40", col.axis = "grey40")
 
 dev.off()
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/Linearity.pdf")
+pdf("filepathname.../Linearity.pdf")
 
 plot(imp.init[[1]]$ideol9599, imp.init[[1]]$policy2000, pch = 19, xlab = "Public Opinion Liberalism", ylab = "Policy Liberalism")
 
 dev.off()
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/QQplot.pdf")
+pdf("filepathname.../QQplot.pdf")
 
 qqnorm(init.res.pool.2)
 qqline(init.res.pool.2, col = "red")
@@ -578,7 +578,7 @@ init.BIC.pool.2 <- init.Dev.pool.2 + (pr3*log(nr3))
 
 ## Some nice graphics ##
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/MainEffectsAvgNum.pdf")
+pdf("filepathname.../MainEffectsAvgNum.pdf")
 
 init.main$col.p <- rep(NA, length(init.main$state))
 init.main$col.p[(init.main$presence00.fix==1)] <-  "blue3"
@@ -597,7 +597,7 @@ legend("bottomright", legend = c("Direct Initiative ", "Limited Direct/Indirect 
 dev.off()
 
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Paper/MainEffectsPctApprove.pdf")
+pdf("filepathname.../MainEffectsPctApprove.pdf")
 
 init.main$col.p <- rep(NA, length(init.main$state))
 init.main$col.p[(init.main$presence00.fix==1)] <-  "blue3"
