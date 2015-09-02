@@ -19,7 +19,7 @@ init.n$useit00[is.na(init.n$useit00)]<-0
 # This is an example of how to communicate several different characteristics of the data using a single scatterplot. 
 # Note: A scatterplot containing this much information would not necessarily be appropriate for professional presentations. This example is intended to show what is possible. 
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 6/init.pdf")
+pdf("filepathname.../init.pdf")
 symbols <- ifelse (init$presence00==1, 24, 25)
 colors <- ifelse (init$presence00==1, "lightblue", "orange")
 plot(jitter(init$ideol9599), jitter(init$policy2000), pch=symbols, col=colors, cex=(init$govideol/10), xlab="Public Opinion Liberalism", 
