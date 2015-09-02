@@ -163,7 +163,7 @@ eta/4
 
 # restricted
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/ropes1.pdf")
+pdf("filepathname.../ropes1.pdf")
 
 par(mar=c(3,6,2,2))
 longnames.r <- c("(Intercept)", "Female", "Black", "Age", "Education", "Income")
@@ -176,7 +176,7 @@ dev.off()
 
 # unrestricted
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/ropes2.pdf")
+pdf("filepathname.../ropes2.pdf")
 
 par(mar=c(3,6,2,2))
 longnames.u <- c("(Intercept)", "Female", "Black", "Age", "Education", "Income", "Party ID", "Ideology")
@@ -190,7 +190,7 @@ dev.off()
 
 # Predicted probability curves with simulated confidence intervals. Can see 1) how the confidence in our estimates changes as the value of a variable increases and 2) the range of possible confidence intervals. This example uses party id, which takes on three possible values. Graph also shows how the points cluster.
 
-pdf("/Users/Seth/Documents/Academics/OSU/Courses/Quantitative Political Analysis II/Homework/HW 7/predprob.pdf")
+pdf("filepathname.../predprob.pdf")
 
 curve (invlogit(bush.u$coef[1] + bush.u$coef[7]*x), .5, 3.5,     ylim=c(-.01,1.01), xlim=c(.5,3.5), xaxt="n", xaxs="i", mgp=c(2,.5,0),ylab="Pr(Vote for Bush)", xlab="Party ID", lwd=1)
 sim.1 <- sim(bush.u, n.sims=1000)
