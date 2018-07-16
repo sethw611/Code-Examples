@@ -1,2 +1,2 @@
-# R-Examples
-Examples of R Code I have written for performing a variety of statistical analyses.
+# Code Examples
+Examples of code I have written for performing a variety of statistical analyses.
