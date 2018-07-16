@@ -1,0 +1,349 @@
+library(igraph)
+library(RColorBrewer)
+library(randomcoloR)
+library(Cairo)
+library(Hmisc)
+library(grDevices)
+
+## Pull in data. This is edge list data containing every retailers and the
+## consumers they have interacted with over an 18 month period. The transactions
+## have been aggregated at the retailer - consumer level ##
+
+net.1 <- read.csv("filepath...network.csv", 
+			header = T,
+			colClasses = c(rep("character", 2), rep(NA, 8)))
+
+## Summarize the data ##
+
+summary(net.1)
+
+## Double check number of observations ##
+
+nrow(net.1)
+
+## Clean up data by removing instances where retailers have negative volume with a particular 
+## consumer ##
+
+net <- net.1[(net.1$total_transactions > 0 
+		& net.1$total_cost > 0
+		& net.1$total_transaction_length > 0
+		& net.1$total_specialty_transactions >= 0)
+		& net.1$total_specialty2_transactions >= 0
+		& net.1$total_specialty3_transactions >= 0,]
+
+## Summarize new data frame ##
+
+summary(net)
+
+## look at rows lost ##
+
+nrow(net)
+
+nrow(net.1) - nrow(net)
+
+## Identify total number of retailers contained in the data set ##
+
+total.retailer.count <- length(unique(net$retailer_id))
+
+## Double-check the data type for each of the variables in the data frame ##
+
+sapply(net, typeof)
+
+## Transform the data frame into a graph object. This becomes a bipartite
+## graph where retailers are connected to consumers but are not connected to
+## each other ##
+
+entity.net <- graph.data.frame(net, directed = F)
+
+## Assign each connection a weight of one ##
+
+E(entity.net)$weight <- 1
+
+## Summarize the network ##
+
+summary(entity.net)
+
+## Create a type vertex attribute that differentiates retailer vertices 
+## from consumer vertices. This will assign a vertex attribute that is 
+## TRUE when a vertex is a retailer and FALSE otherwise. This will allow
+## the program to split them when we project into a one-mode network ##
+
+V(entity.net)$type <- V(entity.net)$name %in% net[,1]
+
+## Project the bipartite graph into two one-mode networks. This will
+## create two new networks. One of retailers connected by consumers and
+## one of consumers connected by retailers ##
+
+net.bipartite <- bipartite.projection(entity.net)
+
+## Look at the head of the retailer network edge list ##
+
+net.bipartite$proj2
+
+## Create a new data frame that provides the retailer edge list
+## along with the weight of the connection which is defined as the number
+## consumers they are connected by ##
+
+bipartite.edge <- as.data.frame(cbind(get.edgelist(net.bipartite$proj2), 
+					as.numeric(E(net.bipartite$proj2)$weight)), 
+					col.names = c("retailer_1","retailer_2","weight"))
+
+## Check the variable type for each of the variables ##
+
+sapply(bipartite.edge, typeof)
+
+## Assign names to the variables and apply correct data type ##
+
+colnames(bipartite.edge) <- c("retailer_1", "retailer_2", "weight")
+bipartite.edge$retailer_1 <- as.character(bipartite.edge$retailer_1)
+bipartite.edge$retailer_2 <- as.character(bipartite.edge$retailer_2)
+bipartite.edge$weight <- as.numeric(paste(bipartite.edge$weight))
+
+## Double-check new data types ##
+
+sapply(bipartite.edge, typeof)
+
+## Check the first few rows ##
+
+head(bipartite.edge)
+
+## Count the number of retailers contained in the network (this will be 
+## different from the number of retailers in the total data set as it will
+## only contain those that are connected to another retailer ##
+
+distinct.dr.count <- length(unique(c(bipartite.edge$retailer_1,
+						bipartite.edge$retailer_2)))
+
+## Count the number of doctors in the network with an edge weight greater
+## than 1 ##
+
+distinct.retailer.count.weight.2 <- length(unique(c(bipartite.edge$retailer_1[(bipartite.edge$weight > 1)],
+							bipartite.edge$retailer_2[(bipartite.edge$weight > 1)])))
+
+## Calculate what percentage of retailers are captured if we only include 
+## strong connections defined as a weight of at least two ##
+
+distinct.retailer.count.weight.2/distinct.retailer.count
+distinct.retailer.count.weight.2/total.retailer.count
+
+## To limit the network to only those retailers with a strong connection
+## you must first delete all the edges in the network that have a weight of
+## one, then delete all vertices that subsequently have a degree of 0 ##
+
+net.strong.1 <- delete.edges(net.bipartite$proj2, 
+				E(net.bipartite$proj2)[E(net.bipartite$proj2)$weight == 1])
+
+net.strong <- delete.vertices(net.strong.1, 
+				V(net.strong.1)[degree(net.strong.1) == 0])
+
+## Check some summary statistics from the newly created network ##
+
+net.strong
+summary(degree(net.strong))
+summary(E(net.strong)$weight)
+vcount(net.strong)
+
+## Run the community detection algorithm ##
+## This algorithm was chosen based on a review of the academic literature which found
+## that it is best suited for large networks with moderately mixed communities
+
+set.seed(3847)
+
+multilevel.net <- cluster_louvain(net.strong)
+head(multilevel.net$membership)
+
+## Create a new dataframe that lists each retailer and the community to 
+## which they belong. This can then be exported to SAS to profile the
+## communities ##
+
+net.mem <- as.data.frame(matrix(NA, 
+			nrow = length(membership(multilevel.net)),
+			ncol = 2))
+
+colnames(net.mem) <- c("retailer_id", "membership")
+
+for(i in 1:length(membership(multilevel.net))){
+	net.mem$retailer_id[i] <- multilevel.net$names[i]
+	net.mem$membership[i] <- as.character(membership(multilevel.net)[[i]])
+}
+
+head(net.mem)
+summary(net.mem)
+nrow(net.mem)/max(net.mem$membership)
+
+
+write.csv(net.mem, "filepath....network.csv")
+
+## Apply the community assignment to the original network for the
+## purposes of plotting ##
+
+V(net.strong)$community <- multilevel.net$membership
+
+## Attach the retailer volume data to the network as vertex attributes ##
+retailers <- as.data.frame(matrix(NA, nrow = length(unique(net$retailer_id)), ncol = 12))
+colnames(retailers) <- c("retailer_id",
+				"total_transactions",
+				"transactions_per_consumer",
+				"cost_per_consumer",
+				"total_cost",
+				"total_transaction_length",
+				"total_home_based_transactions",
+				"total_specialty1_transactions",
+				"total_specialty2_transactions",
+				"total_specialty3_transactions",
+				"total_specialty2_transaction_length",
+				"betweenness")
+
+retailers$retailer_id <- unique(net$retailer_id)
+
+retailers <- merge(net.mem,
+			retailers,
+			by.x = "retailer_id",
+			by.y = "retailer_id")
+
+for(i in 1:nrow(retailers)){
+	
+	retailer <- retailers$retailer_id[i]
+	retailers$total_transactions[i] <- sum(net$total_transactions[net$retailer_id == retailer])
+	retailers$transactions_per_consumer[i] <- sum(net$total_transactions[net$retailer_id == retailer])/length(unique(net$consumer_id[net$retailer_id == retailer]))
+	retailers$cost_per_consumer[i] <- sum(net$total_cost[net$retailer_id == retailer])/length(unique(net$consumer_id[net$retailer_id == retailer]))
+	retailers$total_cost[i] <- sum(net$total_cost[net$retailer_id == retailer])
+	retailers$total_transaction_length[i] <- sum(net$total_transaction_length[net$retailer_id == retailer])	
+	retailers$total_home_based_transactions[i] <- sum(net$total_home_based_transactions[net$retailer_id == retailer])
+	retailers$total_specialty1_transactions[i] <- sum(net$total_specialty1_transactions[net$retailer_id == retailer])
+	retailers$total_specialty2_transactions[i] <- sum(net$total_specialty2_transactions[net$retailer_id == retailer])
+	retailers$total_specialty3_transactions[i] <- sum(net$total_specialty3_transactions[net$retailer_id == retailer])
+	retailers$total_specialty2_transaction_length[i] <- sum(net$total_specialty2_transaction_length[net$retailer_id == retailer])
+	retailers$betweenness <- betweenness(net.strong[(V(net.strong)$name == retailer)])
+
+}
+
+
+for(i in 1:vcount(net.strong)){
+	
+	retailer <- V(net.strong)$name[i]
+	V(net.strong)$total_transactions[i] <- sum(net$total_transactions[net$retailer_id == retailer])
+	V(net.strong)$transactions_per_consumer[i] <- sum(net$total_transactions[net$retailer_id == retailer])/length(unique(net$consumer_id[net$retailer_id == retailer]))
+	V(net.strong)$cost_per_consumer[i] <- sum(net$total_cost[net$retailer_id == retailer])/length(unique(net$consumer_id[net$retailer_id == retailer]))
+	V(net.strong)$total_cost[i] <- sum(net$total_cost[net$retailer_id == retailer])
+	V(net.strong)$total_transaction_length[i] <- sum(net$total_transaction_length[net$retailer_id == retailer])	
+	V(net.strong)$total_home_based_transactions[i] <- sum(net$total_home_based_transactions[net$retailer_id == retailer])
+	V(net.strong)$total_specialty1_transactions[i] <- sum(net$total_specialty1_transactions[net$retailer_id == retailer])
+	V(net.strong)$total_specialty2_transactions[i] <- sum(net$total_specialty2_transactions[net$retailer_id == retailer])
+	V(net.strong)$total_specialty3_transactions[i] <- sum(net$total_specialty3_transactions[net$retailer_id == retailer])
+	V(net.strong)$total_specialty2_transaction_length[i] <- sum(net$total_specialty2_transaction_length[net$retailer_id == retailer])
+
+}
+
+
+## Isolated the Tampa communities in SAS. Here I am a subsetting the 
+## network into those communities for the purposes of plotting ##
+
+net.tampa <- delete.vertices(net.strong, 
+				V(net.strong)[!(V(net.strong)$community %in% c(1040,1074,109,1894,2245,2346,2612,2694,2956,3038,3119,3239,3282,3505,3624,3684,3741,3761,3791,3795,3957,3973,4025,4035,4118,4662,4778,4937,5061,5081,5162,5188,5240,5256,5268,5336,5393,5479,5490,5554,5575,5621,5707,5899,5999,6069,6072,6102,6126,6265,6270,6275,6293,6305,6336,6426,6464,6517,6646,6672,6681,6699,6710))])
+
+## Count the number of communities ##
+
+communities <- unique(V(net.tampa)$community)
+
+## Assign a unique and distinct color to each community ##
+
+colors <- distinctColorPalette(length(communities))
+
+for(i in 1:length(communities)){
+
+	V(net.tampa)$comcolor[V(net.tampa)$community == communities[i]] <- colors[i]
+
+}
+
+## Change color of edges to reflect whether the edge connects two vertices
+## within the same community (grey) or two vertices in different 
+## communities (red) ##
+
+for(i in 1:ecount(net.tampa)){
+
+	community.1 <- get.vertex.attribute(net.tampa, name = "community", index = V(net.tampa)[inc(i)])[1]
+	community.2 <- get.vertex.attribute(net.tampa, name = "community", index = V(net.tampa)[inc(i)])[2]
+	if(community.1 != community.2){
+
+		E(net.tampa)$colors[i] <- "red"
+
+	} else {
+
+		E(net.tampa)$colors[i] <- "grey80"
+
+	}
+}
+
+## Aggregate values at the community level to design community-level metrics
+
+net.agg.mean <- aggregate(net$total_transactions, by = list(net$retailer_id), FUN = mean) 
+colnames(net.agg.mean) <- c("retailer_id", "mean_total_transactions")
+
+net.agg.median <- aggregate(net$total_transactions, by = list(net$retailer_id), FUN = median) 
+colnames(net.agg.median) <- c("retailer_id", "median_total_transactions")
+
+net.agg.sum <- aggregate(net$total_transactions, by = list(net$retailer_id), FUN = sum) 
+colnames(net.agg.sum) <- c("retailer_id", "sum_total_transactions")
+
+net.agg <- merge(net.agg.mean, 
+			net.agg.median, 
+			by.x = "retailer_id", 
+			by.y = "retailer_id")
+
+net.agg <- merge(net.agg, 
+			net.agg.sum, 
+			by.x = "retailer_id", 
+			by.y = "retailer_id")
+
+net.agg <- merge(net.agg, 
+			net.mem, 
+			by.x = "retailer_id", 
+			by.y = "retailer_id")
+
+
+summary(net.agg)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+sapply(net.agg.mean, typeof)
+
+
+
+net.agg.sum <- aggregate(net.agg$sum_total_transactions, 
+				by = list(net.agg$membership), 
+				FUN = sum)
+colnames(net.agg.sum) <- c("membership", 
+					"total_transactions")
+
+net.agg.count <- aggregate(net.agg$retailer_id, 
+				by = list(net.agg$membership), 
+				FUN = function(x) length(unique(x)))
+colnames(net.agg.count) <- c("membership", 
+					"dr_count")
+
+net.agg.comm <- merge(net.agg.sum,
+				net.agg.count,
+				by.x = "membership",
+				by.y = "membership")
+
+net.agg.median <- aggregate(net.agg$sum_total_transactions,
+				by = list(net.agg$membership),
+				FUN = median)
+colnames(net.agg.median) <- c("membership", 
+					"median_total_transactions")
+
+net.agg.comm <- merge(net.agg.comm,
+				net.agg.median,
+				by.x = "membership",
+				by.y = "membership")
+
+net.agg.mean <- aggregate(net.agg$sum_total_transactions,
+				by = list(net.agg$membership),
+				FUN = mean)
+colnames(net.agg.mean) <- c("membership",
+					"mean_total_transactions")
+
+net.agg.comm <- merge(net.agg.comm,
+				net.agg.mean,
+				by.x = "membership",
+				by.y = "membership")
+
+summary(net.agg.comm)
