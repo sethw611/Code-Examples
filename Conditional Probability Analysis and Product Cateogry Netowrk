@@ -1,0 +1,212 @@
+/* Business problem: Create a conditional probability analysis of prodcut categories to 
+		identify trends of which products are commonly purchased by consumers 
+		who purchase other products. i.e. if a consumer purchases product A,
+		what is the likelihood they have also purchased product B.This can then 
+		be visualized as a network of categories with weights attached to the 
+		connections and probabilities associated with the products.
+
+*/
+
+/* Pull the consumers and the product categories they have purchased from transaction file /*?
+
+proc sql;
+	create table work.distinct_product as
+		select distinct consumer_id,
+			category
+		from server1.product_transactions_2016_2017
+		where consumer_id not is missing 
+			and category not is missing;
+quit;
+
+/* Pull the list of cateogories into a macro list. */
+
+proc sql;
+	select distinct category
+	from work.product_distinct
+	where category not is missing;
+	select distinct category
+		into :category_1 - :category_&sqlobs
+	from work.product_distinct
+	where category not is missing;
+quit;
+
+/* Execute a macro that pulls the conditional probabilities. */
+
+%let N1 = &sqlobs;
+
+%macro category_probs;
+
+%do i=1 %to &N1;
+
+proc sql;
+	create table work.category_1_claims as
+		select distinct consumer_id
+		from work.product_distinct
+		where category = "&&category_&i";
+quit;
+
+proc sql;
+	create table work.category_1 as
+		select a.consumer_id,
+			b.category
+		from work.category_1_claims a
+		left join work.product_distinct b
+			on (a.consumer_id = b.consumer_id);
+quit;
+
+%do j=1 %to &N1;
+
+proc sql;
+	select count(distinct(consumer_id))
+		into :claim_count
+	from work.product_distinct
+	where category = "&&category_&i";
+quit;
+
+proc sql;
+	create table work.category_count as
+		select case
+				when consumer_id not is missing then "&&category_&i"
+				else ""
+			end as category_1,
+			case
+				when consumer_id not is missing then "&&category_&j"
+				else ""
+			end as category_2,
+			count(distinct(consumer_id))/&claim_count as pct
+		from work.category_1
+		where category = "&&category_&j"
+			group by category_1,
+				category_2;
+quit;
+
+%if &j = 1 %then %do;
+
+proc sql;
+	create table work.category_all_&i as
+		select *
+		from work.category_count;
+quit;
+
+%end;
+
+%else %do;
+
+proc sql;
+	create table work.category_all_&i as
+		select *
+		from work.category_all_&i
+		outer union corr
+		select *
+		from work.category_count;
+quit;
+
+%end;
+
+%end;
+
+%if &i = 1 %then %do;
+
+proc sql;
+	create table work.category_all_final as
+		select distinct *
+		from work.category_all_&i;
+quit;
+
+%end;
+
+%else %do;
+
+proc sql;
+	create table work.category_all_final as
+		select distinct *
+		from work.category_all_final
+		outer union corr
+		select distinct *
+		from work.category_all_&i;
+quit;
+
+%end;
+
+%end;
+
+%mend;
+
+%category_probs;
+run;
+
+
+/* Switching to R code. Now the network visualization is created in R. */
+
+library(igraph)
+library(sand)
+
+
+## Probability greater than 10% ##
+
+product <- read.csv("filepath.....product_network.csv", header = T)
+
+head(product.10)
+
+product.net <- graph.data.frame(product.10, directed = T)
+
+is_simple(product.net)
+
+plot(product.net, edge.curved = T, layout = layout.fruchterman.reingold(product.net))
+
+color.gradient <- function(x, colors = c("grey100","grey8"), colsteps = length(x)){
+	return(colorRampPalette(colors) (colsteps) [findInterval(x, seq(min(x),max(x), length.out = colsteps))])
+}
+
+color.gradient.2 <- function(x, colors = c("firebrick3", "orange", "yellow2"), colsteps = length(x)){
+	return(colorRampPalette(colors) (colsteps) [findInterval(x, seq(min(x),max(x), length.out = colsteps))])
+}
+
+E(product.net)$color <- color.gradient(E(product.net)$pct)
+V(product.net)$color <- color.gradient.2(degree(product.net, mode = "out"))
+V(product.net)$names <- sapply(strsplit(V(product.net)$name, "_"), function(x)x[2])
+V(product.net)$labeldist <- ifelse(degree(product.net, mode = "in") < 20, 1, 0) 
+
+pdf("\\\\pmifs02\\home\\sewalker\\My Documents\\Analytics\\Models\\Clinical Analytics\\Pharmacy Segmentation\\productNetwork10.pdf")
+
+set.seed(1546)
+
+par(bg = "grey85")
+plot(product.net, vertex.label.color = "black", 
+		vertex.label.dist = V(product.net)$labeldist, 
+		edge.curved = T, 
+		layout = layout.fruchterman.reingold(product.net), 
+		edge.color = E(product.net)$color, 
+		edge.arrow.size = .7, 
+		vertex.size = degree(product.net, mode = "in")/2, 
+		vertex.color = V(product.net)$color, 
+		vertex.label = V(product.net)$names,
+		main = "Product Conditional Probability Network")
+
+legend("bottomleft", 
+	pch = 19,
+	legend = c("Low","","","","","","","High"),
+	col = colorRampPalette(c("firebrick3", "orange", "yellow2"))(8),
+	cex = .7,
+	bty = "n",
+	title = "Out-Degree")
+
+legend("topleft", 
+	pch = 19,
+	legend = c("Low","","","High"),
+	col = "firebrick3",
+	cex = .7,
+	pt.cex = c(.7, 1, 1.2, 1.4),
+	bty = "n",
+	title = "In-Degree")
+
+legend("topright",
+	title = "Edge Lines",
+	legend = c("Low Probability","","","","High Probability"),
+	col = colorRampPalette(c("grey100","grey8"))(5),
+	cex = .7,
+	bty = "n",
+	fill = colorRampPalette(c("grey100","grey8"))(5))
+
+
+dev.off()
