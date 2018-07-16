@@ -1,0 +1,178 @@
+/* Business problem: Want to calculate the average value of a metric over a dynamic timeframe for an entire business or entity or 
+					by smaller segments or by individual users. Want a true average of the usage over the timeframe requested.
+
+Nature of data: 1) Individuals purchase a product that lasts for a certain number of days and each product has a certain strength
+				attached to it.
+				2) Individuals can purchase this product more than once, and sometimes these days overlap and sometimes they don't,
+				and the strength can vary for each transaction. 
+				3) Need to account for transactions that fall outside the timeframe but whose number of days of usage might still
+				stretch into the timeframe of interest.
+
+Solution: 1) Create a calendar of days for the given timeframe. For each day assign the total strength of the product utilized on 
+			that particular day, then average across all days.
+		2) Include transactions that fall into the timeframe, but only for those days that actually reside in the timeframe. i.e.
+		if the timeframe is february, but the transaction is january 30 and is good for 5 days, then we want to only include
+		the portion of the transaction that resides in Feb 1,2,3.
+		3) Make the timeframe dynamic so that any number of days can be analyzed. 
+		4) Want to see at the individual consumer level and at the entity level.
+
+*/
+
+/* Begin by entering in the desired date range. */
+
+%let start_date_range = "01jan2016"d;
+%let end_date_range = "31jan2016"d;
+
+/* Name any entities in the data you'd like to analyze. */
+
+%let entity = ("XXXXX",
+				"XXXXY");
+
+/* Change filters as needed. */
+
+%let filter1 = ('filter1', 
+				'filter2', 
+				'filter3', 
+				'filter4');
+
+%let filter2 = "filter5";
+
+/* Pull the initial subset from the transaction level data with the necessary filters. Pull all transactions up to 120 days before
+the start. Transactions do not typically stretch that long, so this number is sufficient to capture all trnasactions that
+might reasonably fall into the given timeframe. */
+
+proc sql;
+	create table work.initial_pull as
+		select a.individual_id,
+			a.date,
+			a.time_length,
+			b.daily_amount,
+			put(intck("days", (&start_date_range - 1), &end_date_range), 4.) as days,
+			a.entity
+		from server1.database_1 a
+		left join server2.database_2 b
+			on (a.id_code = b.id_code)
+		where a.filter_field_1 in &filter1
+			and a.filter_field_2 = &filter2
+			and substr(a.id_code, 1, 2) = "XX"
+			and a.invdet_dos between (&start_date_range - 120) and &end_date_range
+			and a.individual_id not is missing
+			and a.entity in &entity
+		outer union corr
+		select a.individual_id,
+			a.date,
+			a.time_length,
+			b.daily_amount,
+			put(intck("days", (&start_date_range - 1), &end_date_range), 4.) as days,
+			a.entity
+		from server1.database_2 a
+		left join server2.database_2 b
+			on (a.id_code = b.id_code)
+		where a.filter_field_1 in &filter1
+			and a.filter_field_2 = &filter2
+			and substr(a.id_code, 1, 2) = "XX"
+			and a.invdet_dos between (&start_date_range - 120) and &end_date_range
+			and a.individual_id not is missing
+			and a.entity in &entity;
+quit;
+
+/* Input the days into a macro variable to be used to create the dynamic date range in the array portion of the following data 
+step. */
+
+proc sql;
+	select distinct left(trim(days))
+		into :days
+	from work.convert_days_to_text;
+quit;
+
+/* Use arrays to create the calendar variables. This is one column per day in the timeframe. For each date, the strength per day 
+is input into the apporopriate column in the calendar corresponding to that day. This is done at the transactional level. */
+
+data work.create_calendar;
+	set work.convert_days_to_text;
+
+	array x amount_1 - amount_&days;
+
+	do i = 1 to (dim(x));
+
+	if (&start_date_range + (i-1)) >= date 
+			and (&start_date_range + (i-1)) < (date + time_length) then x(i) = daily_amount;
+		else x(i) = 0;
+
+	end;
+
+	drop i;
+
+run;
+
+%let amount_list = amount_1 - amount_&days;
+
+/* Sum the strength across each day at the consumer level to get the total strength consumed on that particular day. */
+
+proc summary data=work.create_calendar nway;
+	class entity
+		individual_id;
+	var &amount_list;
+	output out=work.total_amount_per_ind_per_day (drop=_freq_ _type_) sum=;
+run;
+
+/* Create new date variables to use for counting the total number of days in which a consumer is utilizing the product. */
+
+data work.day_count;
+	set work.total_amount_per_ind_per_day;
+
+	array x amount_1 - amount_&days;
+	array y day_1 - day_&days;
+
+	do i = 1 to dim(x);
+
+	if x(i) > 0 then y(i) = 1;
+		else y(i) = 0;
+
+	end;
+
+	drop i;
+
+run;
+
+/* Sum the two sets of date variables to get the total strength over the time frame and the total number of days. */
+
+data work.day_count_1;
+	set work.day_count;
+
+	day_count = sum(of day_1 - day_&days);
+	total_amount = sum(of amount_1 - amount_&days);
+
+	drop day_1 - day_&days;
+	drop amount_1 - amount_&days;
+
+run;
+
+/* Remove individuals with a zero value to account for credits in the system. */
+
+proc sql;
+	create table work.day_count_2 as
+		select *
+		from work.day_count_1
+		where day_count > 0;
+quit;
+
+/* For each consumer, calculate the average strength per day for the days they were utilizing the product during the timeframe */
+
+data work.amount_per_day_per_ind_entity;
+	set work.day_count_2;
+
+	avg_amount_per_day = total_amount/day_count;
+
+run;
+
+/* Calculate the average strength per day at the entity level for aggregate level reporting */
+
+proc sql;
+	create table work.avg_amount_per_day_entity as
+		select entity,
+			sum(avg_amount_per_day)/count(individual_id) as avg_amount_per_day
+		from work.amount_per_day_per_ind_entity
+			group by entity;
+quit;
+
