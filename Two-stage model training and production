@@ -1,0 +1,3036 @@
+/* Business problem: Create a model that predicts the likelihood a consumer will continue utilizing products in the long term
+					in addition to the likely spend they will produce long-term. Combine the ouput into a single expected value 
+					and make the models dynamic so that they update over time as new data is received. 
+
+*/
+
+proc sql;
+	create table work.initial_pull as
+		select a.consumer_id,
+			a.entity,
+			a.transaction_date,
+			a.product_code,
+			substr(a.product_code,1,2) as product_code_2,
+			a.transaction_count,
+			a.transaction_length,
+			a.transaction_quantity,
+			a.transaction_cost,
+			a.consumer_demograpic_desc1,
+			b.consumer_demographic_code1,
+			a.retail_id,
+			a.location_id,
+			b.consumer_sign_up_date,
+			case
+				when intck('months', b.consumer_sign_up_date, today()) = 5 then "Month 4"
+				when intck('months', b.consumer_sign_up_date, today()) between 37 and 61 then "Training"
+				else ""
+			end as Model_Type,
+			intck('months', b.consumer_sign_up_date, today()) as no_of_months,
+			case
+				when substr(a.product_code, 1, 2) = "AA" then a.transaction_cost
+				else 0
+			end as aa_cost,
+			case
+				when substr(a.product_code, 1, 2) = "AB" then a.transaction_cost
+				else 0
+			end as ab_cost,
+			case
+				when substr(a.product_code, 1, 2) = "AC" then a.transaction_length
+				else 0
+			end as ac_length,
+			case
+				when substr(a.product_code, 1, 2) = "AD" then a.transaction_length
+				else 0
+			end as ad_length,
+			case
+				when c.special_product_code not is missing then a.transaction_length
+				else 0
+			end as ae_length,
+			upper(a.entity_subclass_1) as entity_subclass_1,
+			"" as entity_subclass_2,
+			upper(a.insurer_name) as entity_subclass_3,
+			upper(a.company_rep_name) as company_rep,
+			upper(a.company_rep_location) as company_rep_location,
+			d.consumer_ssn,
+			a.consumerfee_state as consumer_state,
+			a.special_product_code,
+			a.consumer_program_number,
+			a.consumer_program_type,
+			case
+				when entity in ("XXXXX",
+						"XXXXXXY") then "entity1"
+				when entity = "AAAAAA" then "entity2"
+				when entity_subclass_1 in ('BBBBBB',
+							"CCCCC") then "entity3"
+				when entity = 'DDDDD'
+					and entity_subclass_2 in ('ABCD',
+								'DEFG') then "entity4"
+				else ""
+			end as entity_id
+		from server1.transaction_line_items a
+		left join server2.consumer_sign_up_dates b
+			on (a.consumer_id = b.consumer_id)
+		left join server2.retailer_type_products c
+			on (a.special_product_code = c.special_product_code)
+		left join server3.consumer_demographics d
+			on (a.consumer_id = d.consumer_id)
+		where a.consumer_id not is missing 
+			and (intck('months', b.consumer_sign_up_date, today()) between 5 and 7
+				or intck('months', b.consumer_sign_up_date, today()) > 12)
+			and a.transaction_count > 0 				
+			a.transaction_date >= b.consumer_sign_up_date;
+quit;
+
+
+/*
+
+Step 2: Unique fields
+
+The final files that go out to clinical and account management have some demographic data on some of the consumers. In the original
+data this can sometimes cause duplication of rows when joining on this info. So it is necessary to create unique values for
+each consumer on some of these fields. Most of these fields are created in a separate process (the monthly table updates), but a 
+few have to be done in this program. Unique values are chosen by taking the value that was assigned on the most recent DOS.
+
+All unique fields are:
+
+1) server5.distinct_claim_type - differentiates between Workers' Comp and Auto claims, etc.
+2) work.distinct_carrier - On rare occassion, consumers have switched carriers in the data, so this assigns one carrier.
+3) work.distinct_providers - University of California asks for a list of all prescribers a consumer has seen. This holds that list.
+4) server5.consumer_names_final - assigns each consumer a unique name.
+5) server5.helios_consumer_dem_1_date - assigns each consumer a unique consumer_dem_1 date.
+6) server5.helios_consumer_dob - assigns each consumer a unique birthdate.
+7) server5.distinct_state assigns each consumer a unique state.
+8) server5.distinct_adjustor - assigns each consumer a unique adjustor.
+9) server5.helios_consumer_gender - assigns each consumer a unique gender.
+10) server5.distinct_company_name - assigns each consumer a unique master group name.
+11) server5.distinct_company_rep_location - assigns each consumer a unique employer name.
+12) server5.distinct_consumer_dem_1_type - assigns each consumer a unique consumer_dem_1 type.
+13) server5.distinct__dem2 - assigns each consumer a unique body part.
+14) server5.distinct_entity_subclass_3 - assigns each consumer a unique entity_subclass_3.
+15) server5.distinct_entity_subclass_2 - assigns each consumer a unique carrier group.
+16) server5.distinct_ssn - assigns each consumer a unique SSN.
+17) server5.distinct_policy - assigns each consumer a unique policy. 
+
+*/
+
+proc sql;
+	create table work.distinct_retailers_1 as
+		select distinct consumer_id,
+			retail_id
+		from work.initial_pull
+		where retail_id not is missing;
+quit;
+
+proc sql;
+	create table work.distinct_retailers_2 as
+		select a.consumer_id,
+			trim(b.retailer_name) as retailer_name
+		from work.distinct_retailers_1 a
+		left join server2.retailer_names b
+			on (a.retail_id = b.retailer_id)
+		where b.retailer_name not is missing
+			order by consumer_id;
+quit;
+
+proc transpose data=work.distinct_retailers_2 out=work.distinct_retailers_3;
+	by consumer_id;
+	var retailer_name;
+run;
+		
+data work.distinct_retailers_final(keep=consumer_id retailer_name);
+	set work.distinct_retailers_3;
+	length retailer_name $210;
+	retailer_name = catx('; ',of col:);
+run;	
+
+/* 
+
+Step 3: Training Set
+
+- Pull out the training data (transactions from 3-5 years ago) by pulling all claims and their transactions.
+
+*/
+
+proc sql;
+	create table work.training as
+		select *
+		from work.initial_pull
+		where Model_Type = "Training";
+quit;
+
+proc sql;
+	create table work.first_last_trasaction_date as
+		select consumer_id,
+			consumer_sign_up_date,
+			min(transaction_date) as first_transaction_date,
+			max(transaction_date) as last_transaction_date
+		from work.training
+			group by consumer_id,
+				consumer_sign_up_date;
+quit;
+
+proc sql;
+	create table work.month_4_training_1 as
+		select consumer_id
+		from work.first_last_transaction_date
+		where intck('days', consumer_sign_up_date, first_transaction_date) <= ((365.25/12)*4);
+quit;
+
+proc sql;
+	create table work.month_4_training_2 as
+		select a.consumer_id,
+			b.*
+		from work.month_4_training_1 a
+		left join work.training b
+			on (a.consumer_id = b.consumer_id)
+		where intck('days',b.consumer_sign_up_date,b.transaction_date) <= (365.25/12)*4;
+quit;
+
+/*
+
+Step 4: Create the variables, both dependent and independent.
+
+Step 4a: Variables - Monthly Activity.
+
+*/
+
+data work.month_4_training_3;
+	set work.month_4_training_2;
+
+		array x month_1 - month_4;
+
+		do i = 1 to dim(x);
+
+			if intck('day',consumer_sign_up_date,transaction_date) >= (365.25/12)*(i-1) 
+					and intck('day',consumer_sign_up_date,transaction_date) < (365.25/12)*i 
+					then x(i) = 1;
+				else x(i) = 0;
+
+		end;
+
+		drop i;
+run;
+
+
+proc summary data=work.month_4_training_3 nway;
+	class consumer_id;
+	var month_1 - month_4;
+	output out=work.m4_active_months (drop=_type_ _freq_) max=;
+run;
+
+
+/* 
+
+Step 4b: Dependent Variable - Logistic
+
+*/
+
+proc sql;
+	create table work.month_4_long_term_1 as
+		select a.consumer_id,
+			b.*
+		from work.month_4_training_1 a
+		left join work.training b
+			on (a.consumer_id = b.consumer_id);
+quit;
+
+
+data work.month_4_long_term_2;
+	set work.month_4_long_term_1;
+
+		array x month_1 - month_36;
+
+		do i = 1 to dim(x);
+
+			if intck('day',consumer_sign_up_date,transaction_date) >= (365.25/12)*(i-1) 
+					and intck('day',consumer_sign_up_date,transaction_date) < (365.25/12)*i 
+					then x(i) = 1;
+				else x(i) = 0;
+
+		end;
+
+		drop i;
+run;
+
+
+proc summary data=work.month_4_long_term_2 nway;
+	class consumer_id;
+	var month_1 - month_36;
+	output out=work.month_4_training_4 (drop=_type_ _freq_) max=;
+run;
+
+proc sql;
+	create table work.month_4_log_dep as	
+		select consumer_id,
+			case
+				when month_25 = 1
+					or month_26 = 1
+					or month_27 = 1
+					or month_28 = 1
+					or month_29 = 1
+					or month_30 = 1
+					or month_31 = 1
+					or month_32 = 1
+					or month_33 = 1
+					or month_34 = 1
+					or month_35 = 1
+					or month_36 = 1 then 1
+				else 0
+			end as long_term
+		from work.month_4_training_4;
+quit;
+
+
+/*
+
+Step 4c: Dependent Variable - Cost
+
+*/
+
+proc sql;
+	create table work.m4_total_cost_yr_3 as
+		select consumer_id,
+			sum(transaction_cost) as total_cost_yr_3
+		from work.month_4_long_term_1
+		where intck('days', consumer_sign_up_date, transaction_date) > (365.25/12)*24
+			and intck('days', consumer_sign_up_date, transaction_date) <= (365.25/12)*36
+			group by consumer_id;
+quit;
+
+
+/* 
+
+
+*/
+
+proc sql;
+	create table work.month_4_totals as
+		select consumer_id,
+			sum(transaction_count) as total_transactions_1_4,
+			sum(transaction_length) as total_trans_length_1_4,
+			(sum(transaction_length)*sum(transaction_count)) as total_trans_by_length_1_4,
+			count(distinct(retail_id)) as retailer_count,
+			(sum(transaction_count)*count(distinct(retail_id))) as total_trans_by_retailer_1_4,
+			sum(aa_cost) as total_aa_cost_1_4,
+			sum(ab_cost) as total_ab_cost_1_4,
+			sum(transaction_cost) as total_cost_1_4,
+			sum(ac_length) as total_ac_length_1_4,
+			sum(ad_length) as total_ad_length_1_4,
+			sum(transaction_length) as total_trans_length_1_4,
+			(sum(transaction_cost)*sum(transaction_length)) as total_cost_by_length_1_4,
+			sum(ae_length) as total_ae_length_1_4
+		from work.month_4_training_2
+		where (intck('days', consumer_sign_up_date, transaction_date)) <= (365.25/12)*4
+			group by consumer_id;
+quit;
+
+
+proc sql;
+	create table work.month_4_product_id_1 as
+		select consumer_id,
+			case
+				when product_code_2 = "AA" then transaction_count
+				else 0
+			end as aa_trans_count,
+			case 
+				when product_code_2 = "AB" then transaction_count
+				else 0
+			end as ab_trans_count,
+			case
+				when product_code_2 = "AC" then transaction_count
+				else 0
+			end as ac_trans_count,
+			case
+				when product_code_2 = "AD" then transaction_count
+				else 0
+			end as ad_trans_count,
+			case
+				when product_code_2 = "AE" then transaction_count
+				else 0
+			end as ae_trans_count
+		from work.month_4_training_2;
+quit;
+
+
+proc sql;
+	create table work.month_4_product_code_2 as
+		select consumer_id,
+			sum(aa_trans_count) as aa_trans_count,
+			sum(ab_trans_count) as ab_trans_count,
+			sum(ac_trans_count) as ac_trans_count,
+			sum(ad_trans_count) as ad_trans_count,
+			sum(ae_trans_count) as ae_trans_count
+		from work.month_4_product_id_1
+			group by consumer_id;
+quit;
+
+proc sql;
+	create table work.month_4_product_code_dummy as
+		select consumer_id,
+			case
+				when aa_trans_count > 0 then 1
+				else 0
+			end as aa_dummy,
+			case
+				when ab_trans_count > 0 then 1
+				else 0
+			end as ab_dummy,
+			case
+				when ac_trans_count > 0 then 1
+				else 0
+			end as ac_dummy,
+			case
+				when ad_trans_count > 0 then 1
+				else 0
+			end as ad_dummy,
+			case
+				when ae_trans_count > 0 then 1
+				else 0
+			end as ae_dummy
+		from work.month_4_product_code_2;
+quit;
+
+
+/*
+
+Step 4e:  WOE - Cost Model
+
+*/
+
+proc sql;
+	create table work.m4_consumer_dem_1 as
+		select distinct consumer_id,
+			consumer_demographic_code1
+		from work.month_4_training_2
+		where consumer_demographic_code1 not is missing;
+quit;
+
+
+proc sql;
+	create table work.m4_consumer_dem_1_count as
+		select consumer_id,
+			consumer_demographic_code1,
+			count(consumer_id) as consumer_count
+		from work.m4_consumer_dem_1
+			group by consumer_id;
+quit;
+
+
+proc sql;
+	create table work.m4_consumer_dem_1_final_1 as
+		select consumer_id,
+			consumer_demographic_code1
+		from work.m4_consumer_dem_1_count 
+		where consumer_count = 1;
+quit;
+
+proc sql;
+	select count(consumer_id) as m4_consumer_count
+		into :m4_consumer_count
+	from work.m4_consumer_dem_1_final_1;
+
+%put &m4_consumer_count;
+
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_pct as
+		select consumer_demographic_code1,
+			count(consumer_id) as consumer_count
+		from work.m4_consumer_dem_1_final_1
+			group by consumer_demographic_code1
+			having consumer_count < 100;
+quit;
+
+
+proc sql;
+	create table work.m4_consumer_dem_1_final as
+		select a.consumer_id,
+			case
+				when b.consumer_demographic_code1 not is missing
+					or a.consumer_demographic_code1 = "-" then "OTHER"
+				else a.consumer_demographic_code1
+			end as consumer_demographic_code1
+		from work.m4_consumer_dem_1_final_1 a
+		left join work.m4_consumer_dem_1_pct b
+			on (a.consumer_demographic_code1 = b.consumer_demographic_code1)
+			order by a.consumer_id;
+quit;	
+
+
+proc sql;
+	create table work.m4_consumer_dem_1_cost_lt as
+		select a.consumer_id,
+			a.consumer_demographic_code1,
+			c.total_cost_yr_3
+		from work.m4_consumer_dem_1_final a
+		left join work.m4_total_cost_yr_3 c
+			on (a.consumer_id = c.consumer_id)
+		where c.total_cost_yr_3 > 0;
+quit;
+
+proc sql;
+	select mean(total_cost_yr_3) as m4_avg_cost_yr_3
+		into :m4_avg_cost_yr_3
+	from work.m4_claim_consumer_dem_1_spend_lt;
+
+%put &m4_avg_cost_yr_3;
+
+quit;
+
+
+proc sql;
+	create table work.m4_pos_neg_total as
+		select consumer_id,
+			consumer_demographic_code1,
+			case
+				when (total_cost_yr_3 > &m4_avg_cost_yr_3) then (total_cost_yr_3 - &m4_avg_cost_yr_3)
+				else .
+			end as pos_spend,
+			case
+				when (total_cost_yr_3 < &m4_avg_cost_yr_3) then (&m4_avg_cost_yr_3 - total_cost_yr_3)
+				else .
+			end as neg_spend
+		from work.m4_claim_consumer_dem_1_spend_lt;
+quit;
+
+proc sql;
+	select sum(pos_spend) as m4_total_pos_spend,
+		sum(neg_spend) as m4_total_neg_spend 
+		into :m4_total_pos_spend,
+			:m4_total_neg_spend
+	from work.m4_pos_neg_total;
+
+%put &m4_total_pos_spend;
+%put &m4_total_neg_spend;
+
+quit;
+
+
+proc sql;
+	create table work.m4_woe_1 as
+		select consumer_demographic_code1,
+			sum(pos_spend)/&m4_total_pos_spend as pct_pos_spend,
+			sum(neg_spend)/&m4_total_neg_spend as pct_neg_spend
+		from work.m4_pos_neg_total
+			group by consumer_demographic_code1;
+quit;
+
+
+proc sql;
+	create table work.WOE_consumer_dem_1_Type_Yr_3_Spend_Mth_4 as	
+		select consumer_demographic_code1,
+			pct_pos_spend,
+			pct_neg_spend,
+			case 
+				when pct_pos_spend is missing 
+					or pct_neg_spend is missing then 0
+				else log(pct_pos_spend/pct_neg_spend) 
+			end as consumer_dem_1_spend_woe
+		from work.m4_woe_1 
+			order by consumer_dem_1_spend_woe desc;
+quit;
+
+/* 
+
+Step 4f: consumer_dem_1 WOE - Logistic Model
+
+*/
+
+proc sql;
+	create table work.m4_claim_consumer_dem_1_lt as
+		select a.consumer_id,
+			a.consumer_demographic_code1,
+			b.long_term
+		from work.m4_consumer_dem_1_final a
+		left join work.month_4_log_dep b
+			on (a.consumer_id = b.consumer_id);
+quit;
+
+proc sql;
+	select count(consumer_id) as m4_consumer_dem_1_events
+		into :m4_consumer_dem_1_events
+	from work.m4_claim_consumer_dem_1_lt
+		where long_term = 1;
+
+%put &m4_consumer_dem_1_events;
+
+quit;
+
+
+proc sql;
+	select count(consumer_id) as m4_consumer_dem_1_non_events 
+		into :m4_consumer_dem_1_non_events
+	from work.m4_claim_consumer_dem_1_lt
+		where long_term = 0;
+
+%put &m4_consumer_dem_1_non_events;
+
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_lt_events as
+		select consumer_demographic_code1,
+			sum(long_term) as events
+		from work.m4_claim_consumer_dem_1_lt
+			group by consumer_demographic_code1;
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_lt_non_events as
+		select consumer_demographic_code1,
+			count(consumer_id) as consumer_count
+		from work.m4_claim_consumer_dem_1_lt
+			group by consumer_demographic_code1;
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_events_final as	
+		select a.consumer_demographic_code1,
+			a.events,
+			b.consumer_count - a.events as non_events,
+			b.consumer_count,
+			a.events/&m4_consumer_dem_1_events as pct_events,
+			(b.consumer_count - a.events)/&m4_consumer_dem_1_non_events as pct_non_events,
+			b.consumer_count/(&m4_consumer_dem_1_events + &m4_consumer_dem_1_non_events) as pct_observations
+		from work.m4_consumer_dem_1_lt_events a
+		left join work.m4_consumer_dem_1_lt_non_events b
+			on (a.consumer_demographic_code1 = b.consumer_demographic_code1);
+quit;
+
+proc sql;
+	create table work.WOE_consumer_dem_1_type_m4_binary as
+		select a.*,
+			case
+				when a.consumer_demographic_code1 = "OTHER" then "OTHER"
+				else b.consumer_dem_1_type_desc
+			end as consumer_dem_1_type_desc,
+			case
+				when a.events = 0 
+					or a.non_events = 0 then 0
+				else log(a.pct_non_events/a.pct_events)
+			end as WOE
+		from work.m4_consumer_dem_1_events_final a
+		left join server4.consumer_dem_1_type b
+			on (a.consumer_demographic_code1 = b.consumer_dem_1_type_code)
+			order by WOE;
+quit;
+
+
+proc sql;
+	create table work.m4_distinct_consumer_dem_1_code as
+		select distinct consumer_demographic_code1
+		from work.woe_consumer_dem_1_type_m4_binary;
+quit;
+
+proc sql;
+	create table work.m4_woe_consumer_dem_1_type as
+		select a.consumer_id,
+			b.woe,
+			c.consumer_dem_1_spend_woe
+		from work.m4_consumer_dem_1_final a
+		left join woe_consumer_dem_1_type_m4_binary b
+			on (a.consumer_demographic_code1 = b.consumer_demographic_code1)
+		left join work.WOE_consumer_dem_1_Type_Yr_3_Spend_Mth_4 c
+			on (a.consumer_demographic_code1 = c.consumer_demographic_code1);
+quit;
+
+/*
+
+Step 4g: retailer type WOE - Cost Model
+
+*/
+
+proc sql;
+	create table work.m4_retailer_type as
+		select a.consumer_id,
+			b.retailer_type
+		from work.month_4_training_2 a
+		left join server5.retailer_type b
+			on (a.retail_id = b.retail_id);
+quit;
+
+proc sql;
+	select count(distinct(consumer_id)) as m4_consumer_count
+		into :m4_consumer_count
+	from work.m4_retailer_type;
+
+%put &m4_consumer_count;
+
+quit;
+
+proc sql;
+	create table work.m4_retailer_type_final as
+		select distinct consumer_id,
+			retailer_type
+		from work.m4_retailer_type;
+quit;
+
+
+proc sql;
+	create table work.m4_retailer_type as
+		select retailer_type,
+			count(distinct(consumer_id)) as consumer_count
+		from work.m4_retailer_type_final
+			group by retailer_type
+			having consumer_count < 100;
+quit;
+
+proc sql;
+	create table work.m4_retailer_type_final as
+		select a.consumer_id,
+			case
+				when b.retailer_type not is missing then "OTHER"
+				when a.retailer_type is missing then "UNKNOWN"
+				else a.retailer_type
+			end as retailer_type
+		from work.m4_retailer_type a
+		left join work.m4_retailer_type b
+			on (a.retailer_type = b.retailer_type)
+			order by a.consumer_id;
+quit;	
+
+
+proc sql;
+	create table work.m4_retailer_type_spend_lt as
+		select a.consumer_id,
+			a.retailer_type,
+			c.total_cost_yr_3
+		from work.m4_retailer_type_final a
+		left join work.m4_total_bill_yr_3 c
+			on (a.consumer_id = c.consumer_id)
+		where total_cost_yr_3 > 0;
+quit;
+
+
+proc sql;
+	select mean(total_cost_yr_3) as m4_avg_cost_yr_3
+		into :m4_avg_cost_yr_3
+	from work.m4_retailer_type_spend_lt;
+
+%put &m4_avg_cost_yr_3;
+
+quit;
+
+
+proc sql;
+	create table work.m4_pos_neg_total as
+		select consumer_id,
+			retailer_type,
+			case
+				when (total_cost_yr_3 > &m4_avg_cost_yr_3) then (total_cost_yr_3 - &m4_avg_cost_yr_3)
+				else .
+			end as pos_spend,
+			case
+				when (total_cost_yr_3 < &m4_avg_cost_yr_3) then (&m4_avg_cost_yr_3 - total_cost_yr_3)
+				else .
+			end as neg_spend
+		from work.m4_retailer_type_spend_lt;
+quit;
+
+
+proc sql;
+	select sum(pos_spend) as m4_total_pos_spend,
+		sum(neg_spend) as m4_total_neg_spend 
+		into :m4_total_pos_spend,
+			:m4_total_neg_spend
+	from work.m4_pos_neg_total;
+
+%put &m4_total_pos_spend;
+%put &m4_total_neg_spend;
+
+quit;
+
+
+proc sql;
+	create table work.m4_woe_1 as
+		select retailer_type,
+			sum(pos_spend)/&m4_total_pos_spend as pct_pos_spend,
+			sum(neg_spend)/&m4_total_neg_spend as pct_neg_spend
+		from work.m4_pos_neg_total
+			group by retailer_type;
+quit;
+
+
+proc sql;
+	create table work.WOE_retailer_type_Yr_3_Spend_Mth_4 as	
+		select retailer_type,
+			pct_pos_spend,
+			pct_neg_spend,
+			case 
+				when pct_pos_spend is missing 
+					or pct_neg_spend is missing then 0
+				else log(pct_pos_spend/pct_neg_spend) 
+			end as retailer_type_spend_woe
+		from work.m4_woe_1 
+			order by retailer_type_spend_woe desc;
+quit;
+
+
+/*
+
+Step 4h: retailer type WOE - Logistic Model
+
+*/
+
+proc sql;
+	create table work.m4_retailer_type_lt as
+		select a.consumer_id,
+			a.retailer_type,
+			b.long_term
+		from work.m4_retailer_type_final a
+		left join work.month_4_log_dep b
+			on (a.consumer_id = b.consumer_id);
+quit;
+
+
+proc sql;
+	select count(distinct(consumer_id)) as m4_retailer_type_events
+		into :m4_retailer_type_events
+	from work.m4_retailer_type_lt
+		where long_term = 1;
+
+%put &m4_retailer_type_events;
+
+quit;
+
+
+proc sql;
+	select count(distinct(consumer_id)) as m4_retailer_type_non_events 
+		into :m4_retailer_type_non_events
+	from work.m4_retailer_type_lt
+		where long_term = 0;
+
+%put &m4_retailer_type_non_events;
+
+quit;
+
+
+proc sql;
+	create table work.m4_retailer_type_lt_events as
+		select retailer_type,
+			sum(long_term) as events
+		from work.m4_retailer_type_lt
+			group by retailer_type;
+quit;
+
+
+proc sql;
+	create table work.m4_retailer_type_lt_non_events as
+		select retailer_type,
+			count(distinct(consumer_id)) as consumer_count
+		from work.m4_retailer_type_lt
+			group by retailer_type;
+quit;
+
+
+proc sql;
+	create table work.m4_retailer_type_events_final as	
+		select a.retailer_type,
+			a.events,
+			b.consumer_count - a.events as non_events,
+			b.consumer_count,
+			a.events/&m4_retailer_type_events as pct_events,
+			(b.consumer_count - a.events)/&m4_retailer_type_non_events as pct_non_events,
+			b.consumer_count/(&m4_retailer_type_events + &m4_retailer_type_non_events) as pct_observations
+		from work.m4_retailer_type_lt_events a
+		left join work.m4_retailer_type_lt_non_events b
+			on (a.retailer_type = b.retailer_type);
+quit;
+
+
+proc sql;
+	create table work.WOE_retailer_type_m4_binary as
+		select *,
+			case
+				when events = 0 
+					or non_events = 0 then 0
+				else log(pct_non_events/pct_events)
+			end as WOE
+		from work.m4_retailer_type_events_final
+			order by WOE;
+quit;
+
+
+proc sql;
+	create table work.m4_distinct_retailer_type as
+		select distinct retailer_type 
+		from work.woe_retailer_type_m4_binary;
+quit;
+
+proc sql;
+	create table work.m4_woe_retailer_type_1 as
+		select a.consumer_id,
+			b.woe,
+			c.retailer_type_spend_woe
+		from work.m4_retailer_type_final a
+		left join work.woe_retailer_type_m4_binary b
+			on (a.retailer_type = b.retailer_type)
+		left join work.WOE_retailer_type_Yr_3_Spend_Mth_4 c
+			on (a.retailer_type = c.retailer_type);
+quit;
+	
+
+proc summary data=work.m4_woe_retailer_type_1 nway;
+	class consumer_id;
+	var woe
+		retailer_type_spend_woe;
+	output out=work.m4_woe_retailer_type (drop=_freq_ _type_) max=;
+run;
+
+
+proc sql;
+	create table work.m4_first_transaction_date as
+		select consumer_id,
+			min(transaction_date) as first_transaction_date
+		from work.month_4_training_2
+			group by consumer_id;
+quit;
+
+
+/*
+
+Step 4i: State WOE - Cost Model
+
+- Based on first location
+
+*/
+
+proc sql;
+	create table work.m4_location as
+		select a.consumer_id,
+			b.location_id
+		from work.m4_first_transaction_date a
+		left join work.month_4_training_2 b
+			on (a.consumer_id = b.consumer_id and a.first_transaction_date = b.transaction_date)
+		where b.location_id not is missing;
+quit;
+
+data work.m4_first_location;
+	set work.m4_location;
+	by consumer_id;
+		first = first.consumer_id;
+run;
+
+
+proc sql;
+	create table work.m4_pharm_state_zip as
+		select a.consumer_id,
+			b.location_state as state
+		from work.m4_first_location a
+		left join tps_stg.location_all b 
+			on (a.location_id = b.location_id)
+		where a.first = 1;
+quit;
+
+proc sql;
+	create table work.m4_consumer_location as
+		select distinct consumer_id,
+			state
+		from work.m4_pharm_state_zip;
+quit;
+
+
+proc sql;
+	create table work.m4_consumer_location_count as
+		select consumer_id,
+			state,
+			count(consumer_id) as consumer_count
+		from work.m4_consumer_location
+			group by consumer_id;
+quit;
+
+
+proc sql;
+	create table work.m4_state_final_1 as
+		select consumer_id,
+			case
+				when state not is missing then state
+				else "UNKNOWN"
+			end as state
+		from work.m4_consumer_location_count 
+		where consumer_count = 1;
+quit;
+
+proc sql;
+	select count(consumer_id) as m4_state_consumer_count
+		into :m4_state_consumer_count
+	from work.m4_state_final_1;
+
+%put &m4_state_consumer_count;
+
+quit;
+
+
+proc sql;
+	create table work.m4_state_pct as
+		select state,
+			count(consumer_id) as consumer_count
+		from work.m4_state_final_1
+			group by state
+			having consumer_count < 100;
+quit;
+
+
+proc sql;
+	create table work.m4_state_final as
+		select a.consumer_id,
+			case
+				when b.state not is missing 
+					or a.state = "UNKNOWN" then "OTHER"
+				else a.state
+			end as state
+		from work.m4_state_final_1 a
+		left join work.m4_state_pct b
+			on (a.state = b.state)
+			order by a.consumer_id;
+quit;	
+
+
+proc sql;
+	create table work.m4_consumer_location_spend_lt as
+		select a.consumer_id,
+			a.state,
+			c.total_cost_yr_3
+		from work.m4_state_final a
+		left join work.m4_total_bill_yr_3 c
+			on (a.consumer_id = c.consumer_id);
+quit;
+
+
+proc sql;
+	select mean(total_cost_yr_3) as m4_avg_cost_yr_3
+		into :m4_avg_cost_yr_3
+	from work.m4_consumer_location_spend_lt;
+
+%put &m4_avg_cost_yr_3;
+
+quit;
+
+
+proc sql;
+	create table work.m4_pos_neg_total as
+		select consumer_id,
+			state,
+			case
+				when (total_cost_yr_3 > &m4_avg_cost_yr_3) then (total_cost_yr_3 - &m4_avg_cost_yr_3)
+				else .
+			end as pos_spend,
+			case
+				when (total_cost_yr_3 < &m4_avg_cost_yr_3) then (&m4_avg_cost_yr_3 - total_cost_yr_3)
+				else .
+			end as neg_spend
+		from work.m4_consumer_location_spend_lt;
+quit;
+
+
+proc sql;
+	select sum(pos_spend) as m4_total_pos_spend,
+		sum(neg_spend) as m4_total_neg_spend 
+		into :m4_total_pos_spend,
+			:m4_total_neg_spend
+	from work.m4_pos_neg_total;
+
+%put &m4_total_pos_spend;
+%put &m4_total_neg_spend;
+
+quit;
+
+
+proc sql;
+	create table work.m4_woe_1 as
+		select state,
+			sum(pos_spend)/&m4_total_pos_spend as pct_pos_spend,
+			sum(neg_spend)/&m4_total_neg_spend as pct_neg_spend
+		from work.m4_pos_neg_total
+			group by state;
+quit;
+
+proc sql;
+	create table work.WOE_State_Yr_3_Spend_Mth_4 as	
+		select state,
+			pct_pos_spend,
+			pct_neg_spend,
+			case 
+				when pct_pos_spend is missing 
+					or pct_neg_spend is missing then 0
+				else log(pct_pos_spend/pct_neg_spend) 
+			end as state_spend_woe
+		from work.m4_woe_1 
+			order by state_spend_woe desc;
+quit;
+
+
+/* 
+
+Step 4j: State WOE - Logistic Model
+
+- Based on first location location
+
+*/
+
+proc sql;
+	create table work.m4_consumer_location_lt as
+		select a.consumer_id,
+			a.state,
+			b.long_term
+		from work.m4_state_final a
+		left join work.month_4_log_dep b
+			on (a.consumer_id = b.consumer_id);
+quit;
+
+proc sql;
+	select count(consumer_id) as m4_state_events
+		into :m4_state_events
+	from work.m4_consumer_location_lt
+		where long_term = 1;
+
+%put &m4_state_events;
+
+quit;
+
+
+proc sql;
+	select count(consumer_id) as m4_state_non_events 
+		into :m4_state_non_events
+	from work.m4_consumer_location_lt
+		where long_term = 0;
+
+%put &m4_state_non_events;
+
+quit;
+
+
+proc sql;
+	create table work.m4_state_lt_events as
+		select state,
+			sum(long_term) as events
+		from work.m4_consumer_location_lt
+			group by state;
+quit;
+
+
+proc sql;
+	create table work.m4_state_lt_non_events as
+		select state,
+			count(consumer_id) as consumer_count
+		from work.m4_consumer_location_lt
+			group by state;
+quit;
+
+
+proc sql;
+	create table work.m4_state_events_non_events_final as	
+		select a.state,
+			a.events,
+			b.consumer_count - a.events as non_events,
+			b.consumer_count,
+			a.events/&m4_state_events as pct_events,
+			(b.consumer_count - a.events)/&m4_state_non_events as pct_non_events,
+			b.consumer_count/(&m4_state_events + &m4_state_non_events) as pct_observations
+		from work.m4_state_lt_events a
+		left join work.m4_state_lt_non_events b
+			on (a.state = b.state);
+quit;
+
+
+proc sql;
+	create table work.WOE_state_m4_binary as
+		select *,
+			case
+				when events = 0 
+					or non_events = 0 then 0
+				else log(pct_non_events/pct_events)
+			end as WOE
+		from work.m4_state_events_non_events_final
+			order by WOE;
+quit;
+
+
+proc sql;
+	create table work.m4_distinct_state as
+		select distinct state
+		from work.woe_state_m4_binary;
+quit;
+
+
+proc sql;
+	create table work.m4_state_woe_final as
+		select a.consumer_id,
+			b.woe,
+			c.state_spend_woe
+		from work.m4_state_final a
+		left join work.woe_state_m4_binary b
+			on (a.state = b.state)
+		left join work.WOE_State_Yr_3_Spend_Mth_4 c
+			on (a.state = c.state);
+quit;
+
+
+/*
+
+Step 4k: Final Training Set
+
+*/
+
+proc sql;
+	create table work.m4_training_final as
+		select a.*,
+			b.*,
+			c.*,
+			d.woe as woe_consumer_dem_1,
+			d.consumer_dem_1_spend_woe,
+			e.woe as woe_retailer_type,
+			e.retailer_type_spend_woe,
+			f.woe as woe_state,
+			f.state_spend_woe,
+			g.long_term,
+			h.total_cost_yr_3
+		from work.m4_active_months a
+		left join work.month_4_totals b
+			on (a.consumer_id = b.consumer_id)
+		left join work.month_4_product_id_dummy c
+			on (a.consumer_id = c.consumer_id)
+		left join work.m4_woe_consumer_dem_1_type d 
+			on (a.consumer_id = d.consumer_id)
+		left join work.m4_woe_retailer_type e
+			on (a.consumer_id = e.consumer_id)
+		left join work.m4_state_woe_final f
+			on (a.consumer_id = f.consumer_id)
+		left join work.month_4_log_dep g
+			on (a.consumer_id = g.consumer_id)
+		left join work.m4_total_bill_yr_3 h
+			on (a.consumer_id = h.consumer_id);
+quit;
+
+
+/*
+
+Step 5: Create the Scoring data set
+
+Step 5a: Pull the scoring transactions
+
+*/
+
+proc sql;
+	create table work.m4_scoring as
+		select *
+		from work.initial_pull
+		where Model_Type = "Month 4";
+quit;
+
+proc sql;
+	create table work.m6_scoring as
+		select *
+		from work.initial_pull
+		where Model_Type = "Month 6";
+quit;
+
+proc sql;
+	create table work.m4_first_last_transaction_date as
+		select consumer_id,
+			consumer_sign_up_date,
+			min(transaction_date) as first_transaction_date,
+			max(transaction_date) as last_transaction_date
+		from work.m4_scoring
+			group by consumer_id,
+				consumer_sign_up_date;
+quit;
+
+
+proc sql;
+	create table work.month_4_scoring_1 as
+		select consumer_id
+		from work.m4_first_last_transaction_date
+		where intck('days', consumer_sign_up_date, first_transaction_date) <= ((365.25/12)*4);
+quit;
+
+
+proc sql;
+	create table work.month_4_scoring_2 as
+		select a.consumer_id,
+			b.*
+		from work.month_4_scoring_1 a
+		left join work.m4_scoring b
+			on (a.consumer_id = b.consumer_id)
+		where intck('days', b.consumer_sign_up_date, b.transaction_date) <= ((365.25/12)*4);
+quit;
+
+
+/*
+
+Step 5b: Monthly Activity
+
+*/
+
+data work.month_4_scoring_3;
+	set work.month_4_scoring_2;
+
+		array x month_1 - month_4;
+
+		do i = 1 to dim(x);
+
+			if intck('day',consumer_sign_up_date,transaction_date) >= (365.25/12)*(i-1) 
+					and intck('day',consumer_sign_up_date,transaction_date) < (365.25/12)*i 
+					then x(i) = 1;
+				else x(i) = 0;
+
+		end;
+
+		drop i;
+run;
+
+proc summary data=work.month_4_scoring_3 nway;
+	class consumer_id;
+	var month_1 - month_4;
+	output out=work.m4_scoring_active_months (drop=_type_ _freq_) max=;
+run;
+
+/*
+
+Step 5c: Recently Active Flag
+
+- This actually doesn't go in the scoring data, but is used in the entity_id-facing files
+
+*/
+
+proc sql;
+	create table work.recently_active_flag as	
+		select consumer_id,
+			month_4 as recently_active_flag
+		from work.m4_scoring_active_months;
+quit;
+
+
+/*
+
+
+
+*/
+
+proc sql;
+	create table work.month_4_scoring_totals as
+		select consumer_id,
+			sum(transaction_count) as total_transactions_1_4,
+			sum(transaction_length) as total_trans_length_1_4,
+			(sum(transaction_length)*sum(transaction_count)) as total_trans_by_length_1_4,
+			count(distinct(retail_id)) as retailer_count,
+			(sum(transaction_count)*count(distinct(retail_id))) as total_trans_by_retailer_1_4,
+			sum(aa_cost) as total_aa_cost_1_4,
+			sum(ab_cost) as total_ab_cost_1_4,
+			sum(transaction_cost) as total_cost_1_4,
+			sum(ac_length) as total_ac_length_1_4,
+			sum(ad_length) as total_ad_length_1_4,
+			sum(transaction_length) as total_trans_length_1_4,
+			(sum(transaction_cost)*sum(transaction_length)) as total_cost_by_length_1_4,
+			sum(ae_length) as total_ae_length_1_4
+		from work.month_4_scoring_2
+		where (intck('days', consumer_sign_up_date, transaction_date)) <= (365.25/12)*4
+			group by consumer_id;
+quit;
+
+
+proc sql;
+	create table work.month_4_scoring_product_id_1 as
+		select consumer_id,
+			case
+				when product_code_2 = "72" then transaction_count
+				else 0
+			end as aa_trans_count,
+			case 
+				when product_code_2 = "58" then transaction_count
+				else 0
+			end as ab_trans_count,
+			case
+				when product_code_2 = "66" then transaction_count
+				else 0
+			end as ac_trans_count,
+			case
+				when product_code_2 = "49" then transaction_count
+				else 0
+			end as ad_trans_count,
+			case
+				when product_code_2 = "22" then transaction_count
+				else 0
+			end as ae_trans_count
+		from work.month_4_scoring_2;
+quit;
+
+
+proc sql;
+	create table work.month_4_scoring_product_code_2 as
+		select consumer_id,
+			sum(aa_trans_count) as aa_trans_count,
+			sum(ab_trans_count) as ab_trans_count,
+			sum(ac_trans_count) as ac_trans_count,
+			sum(ad_trans_count) as ad_trans_count,
+			sum(ae_trans_count) as ae_trans_count
+		from work.month_4_scoring_product_id_1
+			group by consumer_id;
+quit;
+
+proc sql;
+	create table work.month_4_scoring_product_id_dummy as
+		select consumer_id,
+			case
+				when aa_trans_count > 0 then 1
+				else 0
+			end as aa_dummy,
+			case
+				when ab_trans_count > 0 then 1
+				else 0
+			end as ab_dummy,
+			case
+				when ac_trans_count > 0 then 1
+				else 0
+			end as ac_dummy,
+			case
+				when ad_trans_count > 0 then 1
+				else 0
+			end as ad_dummy,
+			case
+				when ae_trans_count > 0 then 1
+				else 0
+			end as ae_dummy
+		from work.month_4_scoring_product_code_2;
+quit;
+
+
+/*
+
+Step 5e: retailer_type WOE
+
+*/
+
+proc sql;
+	create table work.m4_scoring_retailer_type_1 as
+		select distinct a.consumer_id,
+			b.retailer_type
+		from work.month_4_scoring_2 a
+		left join server5.retailer_type b
+			on (a.retail_id = b.retail_id);
+quit;
+
+
+proc sql;
+	create table work.m4_scoring_retailer_type as
+		select a.consumer_id,
+			case
+				when b.retailer_type is missing
+					and a.retailer_type not is missing then "OTHER"
+				when a.retailer_type is missing then "UNKNOWN"
+				else a.retailer_type
+			end as retailer_type
+		from work.m4_scoring_retailer_type_1 a
+		left join work.m4_distinct_retailer_type b
+			on (a.retailer_type = b.retailer_type);
+quit;
+
+
+proc sql;
+	create table work.m4_woe_retailer_type_scoring_1 as
+		select a.consumer_id,
+			b.woe,
+			c.retailer_type_spend_woe
+		from work.m4_scoring_retailer_type a
+		left join work.woe_retailer_type_m4_binary b
+			on (a.retailer_type = b.retailer_type)
+		left join work.WOE_retailer_type_Yr_3_Spend_Mth_4 c
+			on (a.retailer_type = c.retailer_type);
+quit;
+
+
+proc sql;
+	create table work.m4_woe_retailer_type_scoring as
+		select consumer_id,
+			max(woe) as woe_retailer_type,
+			max(retailer_type_spend_woe) as retailer_type_spend_woe
+		from work.m4_woe_retailer_type_scoring_1
+			group by consumer_id;
+quit;
+
+
+proc sql;
+	create table work.m4_retailer_type_scoring_final_name as
+		select a.consumer_id,
+			b.retailer_type
+		from work.m4_woe_retailer_type_scoring a
+		left join work.woe_retailer_type_m4_binary b
+			on (a.woe_retailer_type = b.woe);
+quit;
+
+/*
+
+Step 5f: consumer_dem_1 WOE
+
+*/
+
+proc sql;
+	create table work.m4_scoring_consumer_dem_1 as
+		select distinct consumer_id,
+			consumer_demographic_code1
+		from work.month_4_scoring_2
+		where consumer_demographic_code1 not is missing;
+quit;
+
+
+proc sql;
+	create table work.m4_scoring_consumer_dem_1_cnt as
+		select consumer_id,
+			consumer_demographic_code1,
+			count(consumer_id) as consumer_count
+		from work.m4_scoring_consumer_dem_1
+			group by consumer_id;
+quit;
+
+
+proc sql;
+	create table work.m4_scoring_consumer_dem_1_final_1 as
+		select consumer_id,
+			consumer_demographic_code1
+		from work.m4_scoring_consumer_dem_1_cnt 
+		where consumer_count = 1;
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_type_desc_1 as
+		select a.consumer_id,
+			case
+				when b.consumer_demographic_code1 not is missing then b.consumer_demographic_code1
+				else "OTHER"
+			end as consumer_demographic_code1
+		from work.m4_scoring_consumer_dem_1_final_1 a
+		left join work.m4_distinct_consumer_dem_1_code b
+			on (a.consumer_demographic_code1 = b.consumer_demographic_code1);
+quit;
+
+
+proc sql;
+	create table work.m4_score_consumer_dem_1_woe as
+		select a.consumer_id,
+			b.woe as woe_consumer_dem_1,
+			c.consumer_dem_1_spend_woe
+		from work.m4_consumer_dem_1_type_desc_1 a
+		left join work.WOE_consumer_dem_1_type_m4_binary b
+			on (a.consumer_demographic_code1 = b.consumer_demographic_code1)
+		left join work.WOE_consumer_dem_1_Type_Yr_3_Spend_Mth_4 c
+			on (a.consumer_demographic_code1 = c.consumer_demographic_code1);
+quit;
+
+
+/*
+
+Step 5g: State WOE
+
+*/
+
+proc sql;
+	create table work.m4_scoring_first_transaction_date as
+		select consumer_id,
+			min(transaction_date) as first_transaction_date
+		from work.month_4_scoring_2
+			group by consumer_id;
+quit;
+
+proc sql;
+	create table work.m4_scoring_location as
+		select a.consumer_id,
+			b.location_id
+		from work.m4_scoring_first_transaction_date a
+		left join work.month_4_scoring_2 b
+			on (a.consumer_id = b.consumer_id and a.first_transaction_date = b.transaction_date)
+		where b.location_id not is missing;
+quit;
+
+data work.m4_scoring_first_location;
+	set work.m4_scoring_location;
+	by consumer_id;
+		first = first.consumer_id;
+run;
+
+
+proc sql;
+	create table work.m4_scoring_pharm_state_zip as
+		select a.consumer_id,
+			b.location_state as state
+		from work.m4_scoring_first_location a
+		left join tps_stg.location_all b 
+			on (a.location_id = b.location_id)
+		where a.first = 1;
+quit;
+
+proc sql;
+	create table work.m4_scoring_consumer_location as
+		select distinct consumer_id,
+			state
+		from work.m4_scoring_state_zip;
+quit;
+
+
+
+
+proc sql;
+	create table work.m4_scoring_state_final as
+		select a.consumer_id,
+			case
+				when b.state is missing then "OTHER"
+				else a.state
+			end as state
+		from work.m4_scoring_consumer_location a
+		left join work.m4_distinct_state b
+			on (a.state = b.state);
+quit;
+
+proc sql;
+	create table work.woe_m4_state_scoring as
+		select a.consumer_id,
+			b.woe as woe_state,
+			c.state_spend_woe
+		from work.m4_scoring_state_final a
+		left join work.WOE_state_m4_binary b
+			on (a.state = b.state)
+		left join work.WOE_State_Yr_3_Spend_Mth_4 c
+			on (a.state = c.state);
+quit;
+
+/*
+
+Step 5h: Final Scoring Dataset
+
+*/
+
+proc sql;
+	create table work.m4_scoring_final as
+		select a.*,
+			b.*,
+			c.*,
+			d.woe_consumer_dem_1,
+			d.consumer_dem_1_spend_woe,
+			e.woe_retailer_type,
+			e.retailer_type_spend_woe,
+			f.woe_state,
+			f.state_spend_woe
+		from work.m4_scoring_active_months a
+		left join work.month_4_scoring_totals b
+			on (a.consumer_id = b.consumer_id)
+		left join work.month_4_scoring_product_id_dummy c
+			on (a.consumer_id = c.consumer_id)
+		left join work.m4_score_consumer_dem_1_woe d 
+			on (a.consumer_id = d.consumer_id)
+		left join work.m4_woe_retailer_type_scoring e
+			on (a.consumer_id = e.consumer_id)
+		left join work.woe_m4_state_scoring f
+			on (a.consumer_id = f.consumer_id);
+quit;
+
+
+/* 
+
+Step 6: Train the model and score the data
+
+Step 6a: Logistic model where consumer_dem_1 data is available
+
+*/
+
+proc sql;
+	create table work.m4_consumer_dem_1_model_data as
+		select *
+		from work.m4_training_final
+		where woe_consumer_dem_1 not is missing;
+quit;
+
+proc logistic data=work.m4_consumer_dem_1_model_data outmodel=work.month_4_consumer_dem_1_model descending;
+	model long_term = month_1
+					month_2
+					month_3
+					month_4
+					total_transactions_1_4
+					total_trans_length_1_4
+					total_trans_by_length_1_4
+					retailer_count
+					total_trans_by_retailer_1_4
+					aa_dummy
+					ab_dummy
+					ac_dummy
+					ad_dummy
+					ae_dummy
+					woe_consumer_dem_1
+					woe_retailer_type
+					woe_state;
+	score out=work.m4_training_scores_consumer_dem_1;
+run;
+
+
+proc sql;
+	create table work.m4_scoring_consumer_dem_1_final as
+		select *
+		from work.m4_scoring_final
+		where woe_consumer_dem_1 not is missing;
+quit;
+
+
+proc logistic inmodel=work.month_4_consumer_dem_1_model;
+	score data=work.m4_scoring_consumer_dem_1_final out=work.m4_consumer_dem_1_scores;
+run;
+
+proc sql;
+	create table work.month_4_consumer_dem_1_scores_final as
+		select consumer_id,
+			aa_dummy,
+			ab_dummy,
+			ac_dummy,
+			consumer_dem_1_spend_woe,
+			month_1,
+			month_2,
+			month_3,
+			month_4,
+			retailer_count,
+			retailer_type_spend_woe,
+			state_spend_woe,
+			ae_dummy,
+			total_ac_length_1_4,
+			total_ab_cost_1_4,
+			total_ad_length_1_4,
+			total_cost_1_4,
+			total_cost_by_length_1_4,
+			total_trans_length_1_4,
+			total_trans_by_length_1_4,
+			total_aa_cost_1_4,
+			total_transactions_1_4,
+			total_trans_by_retailer_1_4,
+			total_ae_length_1_4,
+			ad_dummy,
+			woe_consumer_dem_1,
+			woe_retailer_type,
+			woe_state,
+			P_1 as predicted_probability,
+			"Month 4" as consumer_dem_1_Date,
+			"consumer_dem_1" as Model_Type
+		from work.m4_consumer_dem_1_scores	
+			order by P_1 desc;
+quit;
+
+
+
+/*
+
+Step 6b: Logistic No-consumer_dem_1 model
+
+*/
+
+proc logistic data=work.m4_training_final outmodel=work.month_4_no_consumer_dem_1_model descending;
+	model long_term = month_1
+					month_2
+					month_3
+					month_4
+					total_transactions_1_4
+					total_trans_length_1_4
+					total_trans_by_length_1_4
+					retailer_count
+					total_trans_by_retailer_1_4
+					aa_dummy
+					ab_dummy
+					ac_dummy
+					ad_dummy
+					ae_dummy
+					woe_retailer_type
+					woe_state;
+	score out=work.m4_training_scores_no_consumer_dem_1;
+run;
+
+
+
+proc sql;
+	create table work.m4_scoring_no_consumer_dem_1_final as
+		select *
+		from work.m4_scoring_final
+		where woe_consumer_dem_1 is missing;
+quit;
+
+
+proc logistic inmodel=work.month_4_no_consumer_dem_1_model;
+	score data=work.m4_scoring_no_consumer_dem_1_final out=work.m4_no_consumer_dem_1_scores;
+run;
+
+
+
+proc sql;
+	create table work.month_4_no_consumer_dem_1_scores_final as
+		select consumer_id,
+			aa_dummy,
+			ab_dummy,
+			ac_dummy,
+			consumer_dem_1_spend_woe,
+			month_1,
+			month_2,
+			month_3,
+			month_4,
+			retailer_count,
+			retailer_type_spend_woe,
+			state_spend_woe,
+			ae_dummy,
+			total_ac_length_1_4,
+			total_ab_cost_1_4,
+			total_ad_length_1_4,
+			total_cost_1_4,
+			total_cost_by_length_1_4,
+			total_trans_length_1_4,
+			total_trans_by_length_1_4,
+			total_aa_cost_1_4,
+			total_transactions_1_4,
+			total_trans_by_retailer_1_4,
+			total_ae_length_1_4,
+			ad_dummy,
+			woe_consumer_dem_1,
+			woe_retailer_type,
+			woe_state,
+			P_1 as predicted_probability,
+			"Month 4" as consumer_dem_1_Date,
+			"No consumer_dem_1" as Model_Type
+		from work.m4_no_consumer_dem_1_scores	
+			order by P_1 desc;
+quit;
+
+
+
+/*
+
+Step 6c: All Logistic Model Scores
+
+*/
+
+proc sql;
+	create table work.all_log_scores_final as
+		select *
+		from work.month_4_consumer_dem_1_scores_final
+		outer union corr
+		select *
+		from work.month_4_no_consumer_dem_1_scores_final;
+quit;
+
+/*
+
+Step 6d: Cost Model
+
+*/
+
+proc sql;
+	create table work.m4_consumer_dem_1_spend_model_data as
+		select *
+		from work.m4_training_final
+		where woe_consumer_dem_1 not is missing
+			and total_cost_yr_3 not is missing;
+quit;
+
+
+proc reg data=work.m4_consumer_dem_1_spend_model_data outest=work.m4_consumer_dem_1_cost_model;
+	model total_cost_yr_3 = month_1
+							month_2
+							month_3
+							month_4
+							total_aa_cost_1_4
+							total_ab_cost_1_4
+							total_cost_1_4
+							total_ac_length_1_4
+							total_ad_length_1_4
+							total_trans_length_1_4
+							total_ae_length_1_4
+							consumer_dem_1_spend_woe
+							retailer_type_spend_woe
+							state_spend_woe
+							total_cost_by_length_1_4;
+run;
+
+
+proc sql;
+	create table work.m4_no_consumer_dem_1_spend_model_data as
+		select *
+		from work.m4_training_final
+		where total_cost_yr_3 not is missing;
+quit;
+
+
+proc reg data=work.m4_no_consumer_dem_1_spend_model_data outest=work.m4_no_consumer_dem_1_cost_model;
+	model total_cost_yr_3 = month_1
+							month_2
+							month_3
+							month_4
+							total_aa_cost_1_4
+							total_ab_cost_1_4
+							total_cost_1_4
+							total_ac_length_1_4
+							total_ad_length_1_4
+							total_trans_length_1_4
+							total_ae_length_1_4
+							retailer_type_spend_woe
+							state_spend_woe
+							total_cost_by_length_1_4;
+run;
+
+
+
+proc sql;
+	create table work.m4_scoring_consumer_dem_1_spend_final as
+		select *
+		from work.m4_scoring_final
+		where consumer_dem_1_spend_woe not is missing;
+quit;
+
+
+
+proc score data=work.m4_scoring_consumer_dem_1_spend_final score=work.m4_consumer_dem_1_cost_model out=work.predicted_cost_m4_consumer_dem_1 type=parms;
+	var month_1
+		month_2
+		month_3
+		month_4
+		total_aa_cost_1_4
+		total_ab_cost_1_4
+		total_cost_1_4
+		total_ac_length_1_4
+		total_ad_length_1_4
+		total_trans_length_1_4
+		total_ae_length_1_4
+		consumer_dem_1_spend_woe
+		retailer_type_spend_woe
+		state_spend_woe
+		total_cost_by_length_1_4;
+run;
+
+
+proc sql;
+	create table work.pred_cost_m4_consumer_dem_1_final as
+		select consumer_id,
+			model1 as predicted_spend
+		from work.predicted_cost_m4_consumer_dem_1;
+quit;
+
+
+proc sql;
+	create table work.m4_scoring_no_consumer_dem_1_spend_final as
+		select *
+		from work.m4_scoring_final
+		where consumer_dem_1_spend_woe is missing;
+quit;
+
+proc score data=work.m4_scoring_no_consumer_dem_1_spend_final score=work.m4_no_consumer_dem_1_cost_model out=work.predicted_cost_m4_no_consumer_dem_1 type=parms;
+	var month_1
+		month_2
+		month_3
+		month_4
+		total_aa_cost_1_4
+		total_ab_cost_1_4
+		total_cost_1_4
+		total_ac_length_1_4
+		total_ad_length_1_4
+		total_trans_length_1_4
+		total_ae_length_1_4
+		retailer_type_spend_woe
+		state_spend_woe
+		total_cost_by_length_1_4;
+run;
+
+
+
+proc sql;
+	create table work.pred_cost_m4_no_consumer_dem_1_final as
+		select consumer_id,
+			model1 as predicted_spend
+		from work.predicted_cost_m4_no_consumer_dem_1;
+quit;
+
+
+proc sql;
+	create table work.all_pred_spend_final as
+		select *
+		from work.pred_cost_m4_consumer_dem_1_final
+		outer union corr
+		select *
+		from work.pred_cost_m4_no_consumer_dem_1_final;
+quit;
+
+/*
+
+Step 6e: Combine all scores
+
+*/
+
+proc sql;
+	create table work.all_scores_final as
+		select a.*,
+			b.predicted_spend,
+			(a.predicted_probability*b.predicted_spend) as final_risk_score
+		from work.all_log_scores_final a
+		left join work.all_pred_spend_final b
+			on (a.consumer_id = b.consumer_id);
+quit;
+
+/*
+
+Step 7: Generate Reasons
+
+*/
+
+proc sql;
+	create table work.m4_consumer_dem_1_scores as
+		select *
+		from work.all_scores_final 
+		where consumer_dem_1_date = "Month 4"
+			and model_type = "consumer_dem_1";
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_coefficients_1 as
+		select case
+				when _name_ = "Intercept"
+					and _category_ = "E" then _misc_
+				else .
+			end as intercept,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 0 then _misc_
+				else .
+			end as month_1_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 1 then _misc_
+				else .
+			end as month_2_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 2 then _misc_
+				else .
+			end as month_3_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 3 then _misc_
+				else .
+			end as month_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 4 then _misc_
+				else .
+			end as total_transactions_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 5 then _misc_
+				else .
+			end as total_trans_length_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 6 then _misc_
+				else .
+			end as total_trans_by_length_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 7 then _misc_
+				else .
+			end as retailer_count_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 8 then _misc_
+				else .
+			end as total_trans_by_retailer_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 9 then _misc_
+				else .
+			end as aa_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 10 then _misc_
+				else .
+			end as ab_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 11 then _misc_
+				else .
+			end as ac_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 12 then _misc_
+				else .
+			end as ad_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 13 then _misc_
+				else .
+			end as ae_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 14 then _misc_
+				else .
+			end as woe_consumer_dem_1_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 15 then _misc_
+				else .
+			end as woe_retailer_type_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 16 then _misc_
+				else .
+			end as woe_state_coef
+		from work.month_4_consumer_dem_1_model;
+quit;
+
+proc sql;
+	select max(Intercept) as m4i_Intercept,
+		max(month_1_coef) as m4i_month_1_coef,
+		max(month_2_coef) as m4i_month_2_coef,
+		max(month_3_coef) as m4i_month_3_coef,
+		max(month_4_coef) as m4i_month_4_coef,
+		max(total_transactions_1_4_coef) as m4i_total_transactions_1_4_coef,
+		max(total_trans_length_1_4_coef) as m4i_total_trans_length_1_4_coef,
+		max(total_trans_by_length_1_4_coef) as m4i_total_trans_by_length_1_4_coef,
+		max(retailer_count_coef) as m4i_retailer_count_coef,
+		max(total_trans_by_retailer_1_4_coef) as m4i_total_trans_by_retailer_1_4_coef,
+		max(aa_dummy_coef) as m4i_aa_dummy_coef,
+		max(ab_dummy_coef) as m4i_ab_dummy_coef,
+		max(ac_dummy_coef) as m4i_ac_dummy_coef,
+		max(ad_dummy_coef) as m4i_ad_dummy_coef,
+		max(ae_dummy_coef) as m4i_ae_dummy_coef,
+		max(woe_consumer_dem_1_coef) as m4i_woe_consumer_dem_1_coef,
+		max(woe_retailer_type_coef) as m4i_woe_retailer_type_coef,
+		max(woe_state_coef) as m4i_woe_state_coef
+			into :m4i_Intercept,
+				:m4i_month_1_coef,
+				:m4i_month_2_coef,
+				:m4i_month_3_coef,
+				:m4i_month_4_coef,
+				:m4i_total_transactions_1_4_coef,
+				:m4i_total_trans_length_1_4_coef,
+				:m4i_total_trans_by_length_1_4_coef,
+				:m4i_retailer_count_coef,
+				:m4i_total_trans_by_retailer_1_4_coef,
+				:m4i_aa_dummy_coef,
+				:m4i_ab_dummy_coef,
+				:m4i_ac_dummy_coef,
+				:m4i_ad_dummy_coef,
+				:m4i_ae_dummy_coef,
+				:m4i_woe_consumer_dem_1_coef,
+				:m4i_woe_retailer_type_coef,
+				:m4i_woe_state_coef
+	from work.m4_consumer_dem_1_coefficients_1;
+
+%put m4i_Intercept;
+%put m4i_month_1_coef;
+%put m4i_month_2_coef;
+%put m4i_month_3_coef;
+%put m4i_month_4_coef;
+%put m4i_total_transactions_1_4_coef;
+%put m4i_total_trans_length_1_4_coef;
+%put m4i_total_trans_by_length_1_4_coef;
+%put m4i_retailer_count_coef;
+%put m4i_total_trans_by_retailer_1_4_coef;
+%put m4i_aa_dummy_coef;
+%put m4i_ab_dummy_coef;
+%put m4i_ac_dummy_coef;
+%put m4i_ad_dummy_coef;
+%put m4i_ae_dummy_coef;
+%put m4i_woe_consumer_dem_1_coef;
+%put m4i_woe_retailer_type_coef;
+%put m4i_woe_state_coef;
+
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_scores_1 as
+		select consumer_id,
+			total_transactions_1_4*&m4i_total_transactions_1_4_coef as total_transactions_1_4,
+			total_trans_length_1_4*&m4i_total_trans_length_1_4_coef as total_trans_length_1_4,
+			retailer_count*&m4i_retailer_count_coef as retailer_count,
+			aa_dummy*&m4i_aa_dummy_coef as aa_dummy,
+			ab_dummy*&m4i_ab_dummy_coef as ab_dummy,
+			ac_dummy*&m4i_ac_dummy_coef as ac_dummy,
+			ad_dummy*&m4i_ad_dummy_coef as ad_dummy,
+			ae_dummy*&m4i_ae_dummy_coef as ae_dummy,
+			woe_consumer_dem_1*&m4i_woe_consumer_dem_1_coef as woe_consumer_dem_1,
+			woe_retailer_type*&m4i_woe_retailer_type_coef as woe_retailer_type,
+			woe_state*&m4i_woe_state_coef as woe_state,
+			(month_1*&m4i_month_1_coef) 
+				+ (month_2*&m4i_month_2_coef)
+				+ (month_3*&m4i_month_3_coef)
+				+ (month_4*&m4i_month_4_coef) as months_active
+		from work.m4_consumer_dem_1_scores;
+quit;
+
+proc transpose data=work.m4_consumer_dem_1_scores_1 out=work.m4_consumer_dem_1_scores_2;
+	by consumer_id;
+run;
+
+proc sql;
+	create table work.m4_consumer_dem_1_scores_3 as
+		select a.*,
+			b.retailer_type,
+			c.state,
+			e.consumer_dem_1_type_desc
+		from work.m4_consumer_dem_1_scores_2 a
+		left join work.m4_retailer_type_scoring_final_name b
+			on (a.consumer_id = b.consumer_id)
+		left join work.m4_scoring_state_final c
+			on (a.consumer_id = c.consumer_id)
+		left join work.m4_consumer_dem_1_type_desc_1 d
+			on (a.consumer_id = d.consumer_id)
+		left join pmi_stg.pmi_consumer_dem_1_type e
+			on (d.consumer_demographic_code1 = e.consumer_dem_1_type_code);
+quit;
+
+proc sql;
+	create table work.m4_consumer_dem_1_scores_4 as
+		select consumer_id,
+			case
+				when _name_ = "total_transactions_1_4" then "High Rx Count"
+				when _name_ = "total_trans_length_1_4" then "High Days' Supply"
+				when _name_ = "retailer_count" then "High Number of Prescribers"
+				when _name_ = "aa_dummy" then "Anticonvulsant Usage"
+				when _name_ = "ab_dummy" then "Antidepressant Usage"
+				when _name_ = "ac_dummy" then "Antiinflammatory Usage"
+				when _name_ = "ad_dummy" then "Ulcer Drug Usage"
+				when _name_ = "ae_dummy" then "Steroid Usage"
+				when _name_ = "woe_consumer_dem_1" then "High Risk consumer_dem_1: " || consumer_dem_1_type_desc
+				when _name_ = "woe_retailer_type" then "High Risk retailer_type: " || retailer_type
+				when _name_ = "woe_state" then "High Risk State: " || state
+				when _name_ = "months_active" then "High Monthly Activity"
+				else ""
+			end as variable,
+			col1 as value
+		from work.m4_consumer_dem_1_scores_3
+			order by consumer_id,
+				col1 desc;
+quit;
+
+proc transpose data=work.m4_consumer_dem_1_scores_4 out=work.m4_consumer_dem_1_scores_5;
+	by consumer_id;
+	var variable;
+run;
+
+proc sql;
+	create table work.m4_consumer_dem_1_scores_6 as
+		select consumer_id,
+			col1,
+			col2,
+			col3
+		from work.m4_consumer_dem_1_scores_5;
+quit;
+
+data work.m4_consumer_dem_1_reasons_final(keep=consumer_id high_risk_reasons);
+	set work.m4_consumer_dem_1_scores_6;
+	length high_risk_reasons $210;
+	high_risk_reasons = catx(', ',of col:);
+run;
+
+proc sql;
+	create table work.m4_no_consumer_dem_1_scores as 
+		select *
+		from work.all_scores_final 
+		where consumer_dem_1_date = "Month 4"
+			and model_type = "No consumer_dem_1";
+quit;
+
+proc sql;
+	create table work.m4_no_consumer_dem_1_coefficients_1 as
+		select case
+				when _name_ = "Intercept"
+					and _category_ = "E" then _misc_
+				else .
+			end as intercept,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 0 then _misc_
+				else .
+			end as month_1_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 1 then _misc_
+				else .
+			end as month_2_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 2 then _misc_
+				else .
+			end as month_3_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 3 then _misc_
+				else .
+			end as month_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 4 then _misc_
+				else .
+			end as total_transactions_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 5 then _misc_
+				else .
+			end as total_trans_length_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 6 then _misc_
+				else .
+			end as total_trans_by_length_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 7 then _misc_
+				else .
+			end as retailer_count_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 8 then _misc_
+				else .
+			end as total_trans_by_retailer_1_4_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 9 then _misc_
+				else .
+			end as aa_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 10 then _misc_
+				else .
+			end as ab_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 11 then _misc_
+				else .
+			end as ac_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 12 then _misc_
+				else .
+			end as ad_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 13 then _misc_
+				else .
+			end as ae_dummy_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 14 then _misc_
+				else .
+			end as woe_retailer_type_coef,
+			case
+				when _name_ = "EFFECT" 
+					and _category_ = "E"
+					and _nameidx_ = 15 then _misc_
+				else .
+			end as woe_state_coef
+		from work.month_4_no_consumer_dem_1_model;
+quit;
+
+proc sql;
+	select max(Intercept) as m4ni_Intercept,
+		max(month_1_coef) as m4ni_month_1_coef,
+		max(month_2_coef) as m4ni_month_2_coef,
+		max(month_3_coef) as m4ni_month_3_coef,
+		max(month_4_coef) as m4ni_month_4_coef,
+		max(total_transactions_1_4_coef) as m4ni_total_transactions_1_4_coef,
+		max(total_trans_length_1_4_coef) as m4ni_total_trans_length_1_4_coef,
+		max(total_trans_by_length_1_4_coef) as m4ni_total_trans_by_length_1_4_coef,
+		max(retailer_count_coef) as m4ni_retailer_count_coef,
+		max(total_trans_by_retailer_1_4_coef) as m4ni_total_trans_by_retailer_1_4_coef,
+		max(aa_dummy_coef) as m4ni_aa_dummy_coef,
+		max(ab_dummy_coef) as m4ni_ab_dummy_coef,
+		max(ac_dummy_coef) as m4ni_ac_dummy_coef,
+		max(ad_dummy_coef) as m4ni_ad_dummy_coef,
+		max(ae_dummy_coef) as m4ni_ae_dummy_coef,
+		max(woe_retailer_type_coef) as m4ni_woe_retailer_type_coef,
+		max(woe_state_coef) as m4ni_woe_state_coef
+			into :m4ni_Intercept,
+				:m4ni_month_1_coef,
+				:m4ni_month_2_coef,
+				:m4ni_month_3_coef,
+				:m4ni_month_4_coef,
+				:m4ni_total_transactions_1_4_coef,
+				:m4ni_total_trans_length_1_4_coef,
+				:m4ni_total_trans_by_length_1_4_coef,
+				:m4ni_retailer_count_coef,
+				:m4ni_total_trans_by_retailer_1_4_coef,
+				:m4ni_aa_dummy_coef,
+				:m4ni_ab_dummy_coef,
+				:m4ni_ac_dummy_coef,
+				:m4ni_ad_dummy_coef,
+				:m4ni_ae_dummy_coef,
+				:m4ni_woe_retailer_type_coef,
+				:m4ni_woe_state_coef
+	from work.m4_no_consumer_dem_1_coefficients_1;
+
+%put m4ni_Intercept;
+%put m4ni_month_1_coef;
+%put m4ni_month_2_coef;
+%put m4ni_month_3_coef;
+%put m4ni_month_4_coef;
+%put m4ni_total_transactions_1_4_coef;
+%put m4ni_total_trans_length_1_4_coef;
+%put m4ni_total_trans_by_length_1_4_coef;
+%put m4ni_retailer_count_coef;
+%put m4ni_total_trans_by_retailer_1_4_coef;
+%put m4ni_aa_dummy_coef;
+%put m4ni_ab_dummy_coef;
+%put m4ni_ac_dummy_coef;
+%put m4ni_ad_dummy_coef;
+%put m4ni_ae_dummy_coef;
+%put m4ni_woe_retailer_type_coef;
+%put m4ni_woe_state_coef;
+
+quit;
+
+proc sql;
+	create table work.m4_no_consumer_dem_1_scores_1 as
+		select consumer_id,
+			total_transactions_1_4*&m4ni_total_transactions_1_4_coef as total_transactions_1_4,
+			total_trans_length_1_4*&m4ni_total_trans_length_1_4_coef as total_trans_length_1_4,
+			retailer_count*&m4ni_retailer_count_coef as retailer_count,
+			aa_dummy*&m4ni_aa_dummy_coef as aa_dummy,
+			ab_dummy*&m4ni_ab_dummy_coef as ab_dummy,
+			ac_dummy*&m4ni_ac_dummy_coef as ac_dummy,
+			ad_dummy*&m4ni_ad_dummy_coef as ad_dummy,
+			ae_dummy*&m4ni_ae_dummy_coef as ae_dummy,
+			woe_retailer_type*&m4ni_woe_retailer_type_coef as woe_retailer_type,
+			woe_state*&m4ni_woe_state_coef as woe_state,
+			(month_1*&m4ni_month_1_coef) 
+				+ (month_2*&m4ni_month_2_coef)
+				+ (month_3*&m4ni_month_3_coef)
+				+ (month_4*&m4ni_month_4_coef) as months_active
+		from work.m4_no_consumer_dem_1_scores;
+quit;
+
+proc transpose data=work.m4_no_consumer_dem_1_scores_1 out=work.m4_no_consumer_dem_1_scores_2;
+	by consumer_id;
+run;
+
+proc sql;
+	create table work.m4_no_consumer_dem_1_scores_3 as
+		select a.*,
+			b.retailer_type,
+			c.state
+		from work.m4_no_consumer_dem_1_scores_2 a
+		left join work.m4_retailer_type_scoring_final_name b
+			on (a.consumer_id = b.consumer_id)
+		left join work.m4_scoring_state_final c
+			on (a.consumer_id = c.consumer_id);
+quit;
+
+proc sql;
+	create table work.m4_no_consumer_dem_1_scores_4 as
+		select consumer_id,
+			case
+				when _name_ = "total_transactions_1_4" then "High Rx Count"
+				when _name_ = "total_trans_length_1_4" then "High Days' Supply"
+				when _name_ = "retailer_count" then "High Number of Prescribers"
+				when _name_ = "aa_dummy" then "Anticonvulsant Usage"
+				when _name_ = "ab_dummy" then "Antidepressant Usage"
+				when _name_ = "ac_dummy" then "Antiinflammatory Usage"
+				when _name_ = "ad_dummy" then "Ulcer Drug Usage"
+				when _name_ = "ae_dummy" then "Steroid Usage"
+				when _name_ = "woe_retailer_type" then "High Risk retailer_type: " || retailer_type
+				when _name_ = "woe_state" then "High Risk State: " || state
+				when _name_ = "months_active" then "High Monthly Activity"
+				else ""
+			end as variable,
+			col1 as value
+		from work.m4_no_consumer_dem_1_scores_3
+			order by consumer_id,
+				col1 desc;
+quit;
+
+proc transpose data=work.m4_no_consumer_dem_1_scores_4 out=work.m4_no_consumer_dem_1_scores_5;
+	by consumer_id;
+	var variable;
+run;
+
+proc sql;
+	create table work.m4_no_consumer_dem_1_scores_6 as
+		select consumer_id,
+			col1,
+			col2,
+			col3
+		from work.m4_no_consumer_dem_1_scores_5;
+quit;
+
+data work.m4_no_consumer_dem_1_reasons_final(keep=consumer_id high_risk_reasons);
+	set work.m4_no_consumer_dem_1_scores_6;
+	length high_risk_reasons $210;
+	high_risk_reasons = catx(', ',of col:);
+run;
+
+
+proc sql;
+	create table work.all_reasons_final as
+		select *
+		from work.m4_consumer_dem_1_reasons_final
+		outer union corr
+		select *
+		from work.m4_no_consumer_dem_1_reasons_final;
+quit;
+
+/*
+
+Step 8: Combine all scoring data for all consumers
+
+*/
+
+proc sql;
+	create table work.high_risk_scores_reasons_final as
+		select distinct a.*,
+			b.*,
+			upper(trim(c.consumername)) as consumername,
+			d.*,
+			e.*,
+			f.consumer_state as state,
+			g.*,
+			case
+				when h.consumergender is missing then "Unknown"
+				else h.consumergender
+			end as consumergender,
+			i.*,
+			j.*,
+			k.*,
+			l.*,
+			m.*,
+			n.*,
+			o.*,
+			p.*,
+			q.*,
+			r.*,
+			s.*,
+			t.*
+		from work.all_scores_final a
+		left join work.all_reasons_final b
+			on (a.consumer_id = b.consumer_id)
+		left join server5.consumer_names_final c
+			on (a.consumer_id = c.consumer_id)
+		left join server5.consumer_dem_1_date d
+			on (a.consumer_id = d.consumer_id)
+		left join server5.helios_consumer_dob e
+			on (a.consumer_id = e.consumer_id)
+		left join server5.distinct_state f
+			on (a.consumer_id = f.consumer_id)
+		left join server5.distinct_company_rep g
+			on (a.consumer_id = g.consumer_id)
+		left join server5.consumer_gender h
+			on (a.consumer_id = h.consumer_id)
+		left join server5.distinct_company_name i
+			on (a.consumer_id = i.consumer_id)
+		left join server5.distinct_company_rep_location j
+			on (a.consumer_id = j.consumer_id)
+		left join server5.distinct_consumer_dem_1_type k
+			on (a.consumer_id = k.consumer_id)
+		left join server5.distinct_consumer_dem2 l
+			on (a.consumer_id = l.consumer_id)
+		left join work.distinct_carrier m
+			on (a.consumer_id = m.consumer_id)
+		left join server5.distinct_entity_subclass_3 n
+			on (a.consumer_id = n.consumer_id)
+		left join work.distinct_retailers_final o
+			on (a.consumer_id = o.consumer_id)
+		left join server5.distinct_entity_subclass_2 p
+			on (a.consumer_id = p.consumer_id)
+		left join server5.distinct_ssn q
+			on (a.consumer_id = q.consumer_id)
+		left join server5.distinct_consumer_type r
+			on (a.consumer_id = r.consumer_id)
+		left join server5.distinct_product_type s
+			on (a.consumer_id = s.consumer_id)
+		left join work.recent_activity_flag t
+			on (a.consumer_id = t.consumer_id)
+			order by a.final_risk_score desc;
+quit;
+
+proc sql;
+	create table server5.high_risk_scores_reasons_final as
+		select *
+		from work.high_risk_scores_reasons_final;
+quit;
+
+/* 
+
+Step 9: Generate entity_id and clinical files
+
+*/
+
+proc sql;
+	create table work.all_scores_entity1_1 as
+		select entity_id,
+			consumer_name,
+			consumer_id,
+			consumer_sign_up_date,
+			consumer_dob,
+			state,
+			company_name,
+			company_rep_location,
+			entity_subclass_3,
+			company_rep,
+			consumer_gender,
+			floor(intck('days', consumerdob, today())/365.25) as age,
+			consumer_dem2,
+			consumer_demographic_desc1,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons,
+			entity_id,
+			consumer_dem_1_date,
+			"NO" as triage,
+			today() - 30 as data_month format = MONYY.,
+			today() as analysis_month format = MONYY.,
+			recently_active_flag
+		from work.high_risk_scores_reasons_final 
+		where entity_id = "entity2"
+			order by final_risk_score desc;
+quit;
+
+proc sql;
+	create table work.all_scores_entity1_2 as
+		select *,
+			monotonic() as rank
+		from work.all_scores_entity1_1;
+quit;
+
+proc sql;
+	create table work.all_scores_entity1 as
+		select *
+		from work.all_scores_entity1
+		where rank <= 40
+			order by final_risk_score desc;
+quit;
+
+proc sql;
+	create table server5.final_entity1_score_to_entity_id as 
+		select consumername, 
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			company_rep_location,
+			company_rep,
+			consumergender,
+			age,
+			recently_active_flag,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons
+		from work.all_scores_entity1;
+quit;
+
+proc sql;
+	create table work.all_scores_entity2_1 as
+		select entity_id,
+			consumername,
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			company_rep_location,
+			entity_subclass_3,
+			company_rep,
+			consumergender,
+			floor(intck('days', consumerdob, today())/365.25) as age,
+			consumer_dem2,
+			consumer_demographic_desc1,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons,
+			entity_id,
+			consumer_dem_1_date,
+			"NO" as triage,
+			today() - 30 as data_month format = MONYY.,
+			today() as analysis_month format = MONYY.,
+			recently_active_flag
+		from work.high_risk_scores_reasons_final 
+		where entity_id = "entity2"
+			order by final_risk_score desc;
+quit;
+
+proc sql;
+	create table work.all_scores_entity2_2 as
+		select *,
+			monotonic() as rank
+		from work.all_scores_entity2_1;
+quit;
+
+proc sql;
+	create table work.all_scores_entity2 as
+		select *
+		from work.all_scores_entity2_2
+		where rank <= 5
+			order by final_risk_score desc;
+quit;
+
+proc sql;
+	create table server5.final_entity2_score_to_entity_id as 
+		select consumername, 
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			company_rep_location,
+			company_rep,
+			consumergender,
+			age,
+			recently_active_flag,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons
+		from work.all_scores_entity2;
+quit;
+
+proc sql;
+	create table work.all_scores_entity3_1 as
+		select entity_id,
+			consumername,
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			consumer_ssn,
+			state,
+			company_name,
+			entity_subclass_3,
+			company_rep,
+			consumergender,
+			floor(intck('days', consumerdob, today())/365.25) as age,
+			consumer_dem2,
+			consumer_demographic_desc1,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons,
+			entity_id,
+			consumer_dem_1_date,
+			"YES" as triage,
+			today() - 30 as data_month format = MONYY.,
+			today() as analysis_month format = MONYY.,
+			recently_active_flag
+		from work.high_risk_scores_reasons_final 
+		where entity_id = "entity3"
+			order by final_risk_score desc;
+quit;
+
+proc sql;
+	create table work.all_scores_entity3_2 as
+		select *,
+			monotonic() as rank
+		from work.all_scores_entity3_1;
+quit;
+
+proc sql;
+	create table work.all_scores_entity3 as
+		select *
+		from work.all_scores_entity3_2
+		where rank <= 20;
+quit;
+
+proc sql;
+	create table server5.final_entity3_scores_to_entity_id as
+		select consumername,
+			consumer_id,
+			consumer_ssn,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			entity_subclass_3,
+			company_rep,
+			consumergender,
+			age,
+			claimtype,
+			analysis_month,
+			data_month,
+			"EI" as version,
+			recently_active_flag,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons
+		from work.all_scores_entity3;
+quit;
+
+/* Step 4 */
+
+proc sql;
+	create table work.counter_1 as
+		select distinct entity_id
+		from work.initial_pull
+		where entity_id not is missing;
+		select distinct entity_id 
+		into :entity_id_1 - :entity_id_&sqlobs
+		from work.initial_pull
+		where entity_id not is missing;
+quit;
+
+%let N1 = &sqlobs;
+
+%macro m4_claims_triage;
+
+%do i = 1 %to &N1;
+	%put &&entity_id_&i;
+
+%if &i = 1 %then %do;
+
+proc sql;
+	create table server5.final_m4_consumers_to_triage as	
+		select consumername,
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			entity_subclass_3,
+			company_rep,
+			consumergender,
+			age,
+			claimtype,
+			recently_active_flag,
+			consumer_dem2,
+			consumer_demographic_desc1
+		from work.all_scores_&&entity_id_&i
+		where consumer_dem_1_date = "Month 4"
+			and triage = "YES";
+quit;
+
+%end;
+
+%else %do;
+
+proc sql;
+	create table server5.final_m4_consumers_to_triage as
+		select *
+		from server5.final_m4_consumers_to_triage
+		outer union corr
+		select consumername,
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			entity_subclass_3,
+			company_rep,
+			consumergender,
+			age,
+			claimtype,
+			recently_active_flag,
+			consumer_dem2,
+			consumer_demographic_desc1
+		from work.all_scores_&&entity_id_&i
+		where consumer_dem_1_date = "Month 4"
+			and triage = "YES";
+quit;
+
+%end;
+
+%end;
+
+%mend;
+
+%m4_claims_triage;
+run;
+
+/* Step 5 */
+
+proc sql;
+	select distinct month(today()) 
+		into :month
+	from work.initial_pull;
+quit;
+
+/* Step 6 */
+
+
+%macro all_ei_consumers_scored_server5;
+
+%if &month = 2
+	or &month = 5
+	or &month = 8
+	or &month = 11 %then %do;
+
+proc sql;
+	create table work.counter_1 as
+		select distinct entity_id
+		from work.initial_pull
+		where entity_id not is missing;
+		select distinct entity_id 
+		into :entity_id_1 - :entity_id_&sqlobs
+		from work.initial_pull
+		where entity_id not is missing;
+quit;
+
+%let N1 = &sqlobs;
+
+%end;
+
+%else %do;
+
+proc sql;
+	create table work.counter_1 as
+		select distinct entity_id
+		from work.initial_pull
+		where entity_id not is missing
+			and quarterly = 0;
+		select distinct entity_id 
+		into :entity_id_1 - :entity_id_&sqlobs
+		from work.initial_pull
+		where entity_id not is missing
+			and quarterly = 0;
+quit;
+
+%let N1 = &sqlobs;
+
+%end;
+
+%do i = 1 %to &N1;
+	%put &&entity_id_&i;
+
+%if &i = 1 %then %do;
+
+proc sql;
+	create table work.final_all_claims_scored as
+		select entity_id,
+			consumername,
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			entity_subclass_3,
+			company_rep,
+			consumergender,
+			age,
+			claimtype,
+			consumer_dem2,
+			consumer_demographic_desc1,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons,
+			consumer_dem_1_date,
+			triage,
+			data_month,
+			analysis_month
+		from work.all_scores_&&entity_id_&i;
+quit;
+
+%end;
+
+%else %do;
+
+proc sql;
+	create table work.final_all_claims_scored as
+		select *
+		from work.final_all_claims_scored
+		outer union corr
+		select entity_id,
+			consumername,
+			consumer_id,
+			consumer_sign_up_date,
+			consumerdob,
+			state,
+			company_name,
+			entity_subclass_3,
+			company_rep,
+			consumergender,
+			age,
+			claimtype,
+			consumer_dem2,
+			consumer_demographic_desc1,
+			predicted_probability,
+			predicted_spend,
+			final_risk_score,
+			high_risk_reasons,
+			consumer_dem_1_date,
+			triage,
+			data_month,
+			analysis_month
+		from work.all_scores_&&entity_id_&i;
+quit;
+
+%end;
+
+%end;
+
+proc sql;
+	create table server5.ei_scores_backup as
+		select *
+		from server5.ei_scores;
+quit;
+
+proc sql;
+	create table server5.ei_scores as
+		select *
+		from server5.ei_scores
+		outer union corr		
+		select *
+		from work.final_all_consumers_scored;
+quit;
+
+
+%mend;
+
+%all_ei_consumers_scored_tps;
+run;
+
+			
+proc sql;
+	create table work.ei_consumer_list as
+		select distinct consumer_id
+		from work.final_all_claims_scored
+		where triage = "YES";
+quit;
+
+proc sql;
+	create table work.ei_line_items_final as
+		select distinct a.consumer_id,
+			c.product_description,
+			b.transaction_date,
+			b.transaction_quantity,
+			b.transaction_length,
+			b.transaction_cost,
+			d.retailer_name,
+			e.location_name
+		from work.ei_consumer_list a
+		left join work.initial_pull b
+			on (a.consumer_id = b.consumer_id)
+		left join server6.product_info c
+			on (b.special_product_code = c.product_code)
+		left join server5.retailer_names_final d
+			on (b.retail_id = d.dea_npi)
+		left join server6.location_all e
+			on (b.location_id = e.location_id);
+quit;
