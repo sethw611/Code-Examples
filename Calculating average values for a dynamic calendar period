@@ -55,7 +55,7 @@ proc sql;
 		where a.filter_field_1 in &filter1
 			and a.filter_field_2 = &filter2
 			and substr(a.id_code, 1, 2) = "XX"
-			and a.invdet_dos between (&start_date_range - 120) and &end_date_range
+			and a.date between (&start_date_range - 120) and &end_date_range
 			and a.individual_id not is missing
 			and a.entity in &entity
 		outer union corr
@@ -71,7 +71,7 @@ proc sql;
 		where a.filter_field_1 in &filter1
 			and a.filter_field_2 = &filter2
 			and substr(a.id_code, 1, 2) = "XX"
-			and a.invdet_dos between (&start_date_range - 120) and &end_date_range
+			and a.date between (&start_date_range - 120) and &end_date_range
 			and a.individual_id not is missing
 			and a.entity in &entity;
 quit;
