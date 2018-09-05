@@ -3,7 +3,9 @@
 		who purchase other products. i.e. if a consumer purchases product A,
 		what is the likelihood they have also purchased product B.This can then 
 		be visualized as a network of categories with weights attached to the 
-		connections and probabilities associated with the products.
+		connections and probabilities associated with the products. The goal of
+		the visualization here was to generate an example of how many complex 
+		concepts we could fit into a graph. A final result would not be nearly as complex.
 
 */
 
@@ -18,7 +20,7 @@ proc sql;
 			and category not is missing;
 quit;
 
-/* Pull the list of cateogories into a macro list. */
+/* Pull the list of cateogories into a macro list to be iterated over. */
 
 proc sql;
 	select distinct category
@@ -32,11 +34,17 @@ quit;
 
 /* Execute a macro that pulls the conditional probabilities. */
 
+/* Set the number of observations. */
+
 %let N1 = &sqlobs;
 
 %macro category_probs;
 
+/* Initialize do loop. /*
+
 %do i=1 %to &N1;
+
+/* pull list of consumers who have purchased category 1a */
 
 proc sql;
 	create table work.category_1_claims as
@@ -44,6 +52,8 @@ proc sql;
 		from work.product_distinct
 		where category = "&&category_&i";
 quit;
+
+/* Pull the total list of categories that each consumer who has purchased 1a has also purchased */
 
 proc sql;
 	create table work.category_1 as
@@ -56,12 +66,18 @@ quit;
 
 %do j=1 %to &N1;
 
+/* Pull the count of consumers who have purchased cateogry 2 */
+
 proc sql;
 	select count(distinct(consumer_id))
-		into :claim_count
+		into :consumer_count
 	from work.product_distinct
 	where category = "&&category_&i";
 quit;
+
+/* Create a readable list of categories such that cateogry one is in the left column,
+category 2 is in the middle, and the probability, or pct of consumers who purchased category 1
+also purchased category 2 */
 
 proc sql;
 	create table work.category_count as
@@ -73,7 +89,7 @@ proc sql;
 				when consumer_id not is missing then "&&category_&j"
 				else ""
 			end as category_2,
-			count(distinct(consumer_id))/&claim_count as pct
+			count(distinct(consumer_id))/&consumer_count as pct
 		from work.category_1
 		where category = "&&category_&j"
 			group by category_1,
@@ -81,6 +97,8 @@ proc sql;
 quit;
 
 %if &j = 1 %then %do;
+
+/* Combine all individual category tables into a single table */
 
 proc sql;
 	create table work.category_all_&i as
@@ -142,32 +160,62 @@ library(igraph)
 library(sand)
 
 
-## Probability greater than 10% ##
+## Exclue categories whose probability is less than 10% ##
+## Pull in file ##
 
 product <- read.csv("filepath.....product_network.csv", header = T)
 
+## Check the first several rows. Should be edgelist with two columns of nominal variables and ##
+## one column of interval ##
+
 head(product.10)
+
+## Transform edgelist into graph object ##
 
 product.net <- graph.data.frame(product.10, directed = T)
 
+## Check to ensure it is a simple graph object ##
+
 is_simple(product.net)
 
+## Plot initial graph without any edits ##
+
 plot(product.net, edge.curved = T, layout = layout.fruchterman.reingold(product.net))
+
+## Create a function for creating a gray color gradient that is flexible depending on the total number of edges ##
+## in the network. Want each edge to be a different shade of grey depending on the probability ##
 
 color.gradient <- function(x, colors = c("grey100","grey8"), colsteps = length(x)){
 	return(colorRampPalette(colors) (colsteps) [findInterval(x, seq(min(x),max(x), length.out = colsteps))])
 }
 
+## Do the same except for the node colors ##
+
 color.gradient.2 <- function(x, colors = c("firebrick3", "orange", "yellow2"), colsteps = length(x)){
 	return(colorRampPalette(colors) (colsteps) [findInterval(x, seq(min(x),max(x), length.out = colsteps))])
 }
 
+## Make the edge colors a gradient that reflects the probability that a given product b will be used ##
+## by someone who uses product a ##
+
 E(product.net)$color <- color.gradient(E(product.net)$pct)
+
+## Make the node color a gradient that represents the out-degree of the node, or how likely it is that a product a ##
+## will be used with other products ##
+
 V(product.net)$color <- color.gradient.2(degree(product.net, mode = "out"))
+
+## reduce the node names ##
+
 V(product.net)$names <- sapply(strsplit(V(product.net)$name, "_"), function(x)x[2])
+
+## Edit the distance of the labels ##
+
 V(product.net)$labeldist <- ifelse(degree(product.net, mode = "in") < 20, 1, 0) 
 
-pdf("\\\\pmifs02\\home\\sewalker\\My Documents\\Analytics\\Models\\Clinical Analytics\\Pharmacy Segmentation\\productNetwork10.pdf")
+pdf("filepath... productNetwork10.pdf")
+
+## plot ##
 
 set.seed(1546)
 
